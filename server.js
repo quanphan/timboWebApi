@@ -13,7 +13,6 @@ const posts = [
     { id: 3, title: "Bài viết 3", content: "Nội dung bài viết 3" },
 ];
 
-
 // API lấy danh sách bài viết
 app.get("/api/posts", (req, res) => {
     res.json(posts);
