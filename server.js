@@ -16,4 +16,4 @@ app.use("/api/account", accountRoutes); // Lấy thông tin user từ token
 app.use("/api/posts", postRoutes);      // Lấy, tạo bài viết
 
 const PORT = process.env.PORT || 5050;
-app.listen(PORT, () => console.log(`🚀 Server chạy tại http://localhost:${PORT}`));
+app.listen(PORT, () => console.log(`🚀 Server run as http://localhost:${PORT}`));
