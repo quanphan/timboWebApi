@@ -1,19 +1,32 @@
 const express = require("express");
 const cors = require("cors");
-require("dotenv").config();
+const dotenv = require("dotenv");
+
+dotenv.config(); // Load biến môi trường .env
 
 const app = express();
-app.use(cors()); // Cho phép tất cả các domain gọi API
-app.use(express.json()); // Hỗ trợ đọc dữ liệu JSON
+
+// ✅ CORS: Nếu bạn muốn an toàn, có thể giới hạn domain ở đây
+app.use(cors({
+    origin: "*", // Cho phép tất cả domain (tạm thời để chạy)
+    credentials: true,
+}));
+
+app.use(express.json());
 
 // Import các route
 const authRoutes = require("./routes/auth");
 const accountRoutes = require("./routes/account");
 const postRoutes = require("./routes/posts");
 
-app.use("/api/auth", authRoutes);       // Đăng ký, đăng nhập
-app.use("/api/account", accountRoutes); // Lấy thông tin user từ token
-app.use("/api/posts", postRoutes);      // Lấy, tạo bài viết
+// Use các route
+app.use("/api/auth", authRoutes);
+app.use("/api/account", accountRoutes);
+app.use("/api/posts", postRoutes);
 
-const PORT = process.env.PORT || 5050;
-app.listen(PORT, () => console.log(`🚀 Server run as http://localhost:${PORT}`));
+// ✅ Đúng cách đọc PORT từ Railway (hoặc fallback local)
+const PORT = process.env.PORT || 5000;
+
+app.listen(PORT, () => {
+    console.log(`🚀 Server running at http://localhost:${PORT}`);
+});
