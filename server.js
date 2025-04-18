@@ -2,13 +2,11 @@ const express = require("express");
 const cors = require("cors");
 const dotenv = require("dotenv");
 
-dotenv.config(); // Load biến môi trường .env
-
+dotenv.config();
 const app = express();
 
-// ✅ CORS: Nếu bạn muốn an toàn, có thể giới hạn domain ở đây
 app.use(cors({
-    origin: "*", // Cho phép tất cả domain (tạm thời để chạy)
+    origin: "*",
     credentials: true,
 }));
 
@@ -25,8 +23,10 @@ app.use("/api/account", accountRoutes);
 app.use("/api/posts", postRoutes);
 
 // ✅ Đúng cách đọc PORT từ Railway (hoặc fallback local)
-const PORT = process.env.PORT || 5000;
-
+const PORT = process.env.PORT || 5050;
+app.get("/", (req, res) => {
+    res.send("Server is up and running!");
+});
 app.listen(PORT, () => {
     console.log(`🚀 Server running at http://localhost:${PORT}`);
 });
