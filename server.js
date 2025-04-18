@@ -22,11 +22,10 @@ app.use("/api/auth", authRoutes);
 app.use("/api/account", accountRoutes);
 app.use("/api/posts", postRoutes);
 
-// ✅ Đúng cách đọc PORT từ Railway (hoặc fallback local)
 const PORT = process.env.PORT || 5050;
 app.get("/", (req, res) => {
     res.send("Server is up and running!");
 });
-app.listen(PORT, () => {
+app.listen(PORT, "0.0.0.0", () => {
     console.log(`🚀 Server running at http://localhost:${PORT}`);
 });
