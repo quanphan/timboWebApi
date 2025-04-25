@@ -2,7 +2,7 @@ const express = require("express");
 const jwt = require("jsonwebtoken");
 const fs = require("fs");
 const path = require("path");
-
+const axios = require("axios");
 const router = express.Router();
 const usersPath = path.join(__dirname, "../data/users.json");
 
@@ -51,6 +51,53 @@ router.post("/refresh", (req, res) => {
 
         res.json({ accessToken });
     });
+});
+
+router.post("/google-login", async (req, res) => {
+    const { credential } = req.body;
+
+    if (!credential) return res.status(400).json({ message: "Thiếu Google token" });
+
+    try {
+        // Gửi token lên Google xác minh
+        const googleRes = await axios.get(`https://oauth2.googleapis.com/tokeninfo?id_token=${credential}`);
+        const { email, name, sub } = googleRes.data;
+
+        let users = readUsers();
+        let user = users.find(u => u.email === email);
+
+        // Nếu chưa có, tạo user mới
+        if (!user) {
+            user = {
+                id: Date.now(),
+                email,
+                name,
+                googleId: sub
+            };
+            users.push(user);
+            writeUsers(users);
+        }
+
+        // Tạo JWT của hệ thống
+        const token = jwt.sign(
+            { id: user.id, email: user.email },
+            process.env.JWT_SECRET,
+            { expiresIn: "1h" }
+        );
+
+        res.json({ token });
+
+    } catch (err) {
+        console.error("⛔ Lỗi xác minh Google token:");
+        if (err.response) {
+            console.error("Status:", err.response.status);
+            console.error("Data:", err.response.data);
+        } else {
+            console.error("Message:", err.message);
+        }
+
+        res.status(401).json({ message: "Google token không hợp lệ hoặc đã hết hạn" });
+    }
 });
 
 module.exports = router;
