@@ -23,7 +23,7 @@ router.post("/login", (req, res) => {
     const accessToken = jwt.sign(
         { id: user.id, email: user.email },
         process.env.JWT_SECRET,
-        { expiresIn: "15m" } // access token sống 15 phút
+        { expiresIn: "30m" } // access token sống 15 phút
     );
 
     const refreshToken = jwt.sign(

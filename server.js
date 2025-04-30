@@ -16,11 +16,18 @@ app.use(express.json());
 const authRoutes = require("./routes/auth");
 const accountRoutes = require("./routes/account");
 const postRoutes = require("./routes/posts");
+const productRoutes= require("./routes/products");
+const contactRoutes= require("./routes/contact");
+const uploadRoutes = require('./routes/upload');
 
 // Use các route
 app.use("/api/auth", authRoutes);
 app.use("/api/account", accountRoutes);
 app.use("/api/posts", postRoutes);
+app.use("/api/products", productRoutes);
+app.use("/api/contact", contactRoutes);
+app.use('/api/uploads', uploadRoutes);
+app.use('/uploads', express.static('uploads'));
 
 const PORT = process.env.PORT || 5050;
 app.get("/", (req, res) => {

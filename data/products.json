@@ -1,1 +1,127 @@
-[]
+[
+  {
+    "id": 1,
+    "code": "G001",
+    "name": "Bàn gỗ sồi",
+    "image": "./img/shop/clam.jpg",
+    "description": "Bàn gỗ sồi tự nhiên phong cách hiện đại.",
+    "price": 1500000,
+    "rating": 4.5,
+    "type": "ban",
+    "brand": "Rockler"
+  },
+  {
+    "id": 2,
+    "code": "G002",
+    "name": "Ghế gỗ tre",
+    "image": "./img/blog-post01.png",
+    "description": "Ghế tre thủ công êm ái, thiết kế tinh tế.",
+    "price": 750000,
+    "rating": 4.2,
+    "type": "ghe",
+    "brand": "Handmake"
+  },
+  {
+    "id": 3,
+    "code": "G002",
+    "name": "Ghế gỗ tre",
+    "image": "./img/blog-post01.png",
+    "description": "Ghế tre cong thai hoc",
+    "price": 750000,
+    "rating": 4.2,
+    "type": "ghe",
+    "brand": "Rockler"
+  },
+  {
+    "id": 4,
+    "code": "G002",
+    "name": "Ghế gỗ tre",
+    "image": "./img/blog-post01.png",
+    "description": "Ghế tre thủ công êm ái, ",
+    "price": 750000,
+    "rating": 4.2,
+    "type": "ghe",
+    "brand": "Hand make"
+  },
+  {
+    "id": 5,
+    "code": "G002",
+    "name": "Ban tra go trai",
+    "image": "./img/blog-post01.png",
+    "description": "Ghế thu cong, ",
+    "price": 750000,
+    "rating": 4.2,
+    "type": "ghe"
+  },
+  {
+    "id": 6,
+    "code": "G002",
+    "name": "Ban gỗ mun",
+    "image": "./img/blog-post01.png",
+    "description": "Ghế tre thủ công êm ái",
+    "price": 750000,
+    "rating": 4.2,
+    "type": "ghe"
+  },
+  {
+    "id": 7,
+    "code": "G007",
+    "name": "Ban gỗ tre",
+    "image": "./img/blog-post01.png",
+    "description": "Ban thủ công êm ái",
+    "price": 750000,
+    "rating": 5,
+    "type": "ban"
+  },
+  {
+    "id": 8,
+    "code": "G007",
+    "name": "Ban gỗ tre",
+    "image": "./img/blog-post01.png",
+    "description": "Ban thủ công êm ái",
+    "price": 750000,
+    "rating": 5,
+    "type": "ban"
+  },
+  {
+    "id": 9,
+    "code": "G007",
+    "name": "Ban gỗ tre",
+    "image": "./img/blog-post01.png",
+    "description": "Ban thủ công êm ái",
+    "price": 750000,
+    "rating": 5,
+    "type": "ban"
+  },
+  {
+    "id": 10,
+    "code": "G007",
+    "name": "Ban gỗ tre",
+    "image": "./img/blog-post01.png",
+    "description": "Ban thủ công êm ái",
+    "price": 750000,
+    "rating": 5,
+    "type": "ban"
+  },
+  {
+    "id": 11,
+    "code": "G007",
+    "name": "Ban gỗ tre",
+    "image": "./img/blog-post01.png",
+    "description": "Ban thủ công êm ái",
+    "price": 750000,
+    "rating": 5,
+    "type": "ban"
+  },
+  {
+    "code": "q21",
+    "name": "rr",
+    "image": "/uploads/clam-20250429T054058.jpg",
+    "description": "1212",
+    "price": "222",
+    "rating": "1.2",
+    "type": "ban",
+    "brand": "WoodCraft",
+    "id": 1745905288602
+  }
+]
