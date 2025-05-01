@@ -31,28 +31,60 @@ const readProducts = () => {
     }
 };
 
+router.get("/types", (req, res) => {
+    const products = loadProducts();
+    const types = [...new Set(products.map(p => p.type))];
+    res.json(types);
+});
+
 router.get("/", (req, res) => {
     const products = loadProducts(); // từ file .json
 
     const page = parseInt(req.query.page) || 1;
     const pageSize = parseInt(req.query.pageSize) || 10;
     const type = req.query.type;
+    const brand = req.query.brand;
+    const search = req.query.search?.toLowerCase() || '';
 
-    let filtered = type && type !== "all"
-        ? products.filter(p => p.type === type)
-        : products;
+    let filtered = products;
 
+    if (type && type !== 'all') {
+        filtered = filtered.filter(p => p.type === type);
+    }
+
+    if (brand && brand !== 'all') {
+        filtered = filtered.filter(p => p.brand === brand);
+    }
+
+    if (search) {
+        filtered = filtered.filter(p =>
+            p.name.toLowerCase().includes(search) ||
+            p.description.toLowerCase().includes(search)
+        );
+    }
+
+    const total = filtered.length;
     const start = (page - 1) * pageSize;
     const paginated = filtered.slice(start, start + pageSize);
 
-    res.json(paginated);
+    res.json({ products: paginated, total });
 });
 
-router.get("/types", (req, res) => {
-    const products = loadProducts();
-    const types = [...new Set(products.map(p => p.type))];
-    res.json(types);
+router.get('/:id', (req, res) => {
+    const products = loadProducts(); // đọc từ file .json
+    const id = parseInt(req.params.id);
+
+    const product = products.find(p => p.id === id);
+
+    if (!product) {
+        return res.status(404).json({ message: 'Product not found' });
+    }
+
+    res.json(product);
 });
+
+
+
 
 // GET all products
 router.get('/admin1', (req, res) => {
