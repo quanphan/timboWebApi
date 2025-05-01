@@ -84,10 +84,8 @@ router.get('/:id', (req, res) => {
 });
 
 
-
-
 // GET all products
-router.get('/admin1', (req, res) => {
+router.get('/admin-list', (req, res) => {
     const products = readProducts();
     res.status(200).json(products);
 });
