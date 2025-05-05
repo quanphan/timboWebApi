@@ -37,6 +37,34 @@ router.get("/types", (req, res) => {
     res.json(types);
 });
 
+// GET all products
+router.get('/admin-list', (req, res) => {
+    const products = readProducts();
+    res.status(200).json(products);
+});
+
+router.get('/admin', (req, res) => {
+    const page = parseInt(req.query.page) || 1;
+    const limit = parseInt(req.query.limit) || 5;
+    const typeFilter = req.query.type || 'all';
+    const brandFilter = req.query.brand || 'all';
+
+    const products = readJsonFile('data/products.json');
+
+    const filtered = products.filter(p => {
+        const matchType = typeFilter === 'all' || p.type === typeFilter;
+        const matchBrand = brandFilter === 'all' || p.brand === brandFilter;
+        return matchType && matchBrand;
+    });
+
+    const startIndex = (page - 1) * limit;
+    const paginatedProducts = filtered.slice(startIndex, startIndex + limit);
+
+    res.json({
+        products: paginatedProducts,
+        total: filtered.length,
+    });
+});
 router.get("/", (req, res) => {
     const products = loadProducts(); // từ file .json
 
@@ -69,7 +97,6 @@ router.get("/", (req, res) => {
 
     res.json({ products: paginated, total });
 });
-
 router.get('/:id', (req, res) => {
     const products = loadProducts(); // đọc từ file .json
     const id = parseInt(req.params.id);
@@ -82,37 +109,6 @@ router.get('/:id', (req, res) => {
 
     res.json(product);
 });
-
-
-// GET all products
-router.get('/admin-list', (req, res) => {
-    const products = readProducts();
-    res.status(200).json(products);
-});
-
-router.get('/admin', (req, res) => {
-    const page = parseInt(req.query.page) || 1;
-    const limit = parseInt(req.query.limit) || 5;
-    const typeFilter = req.query.type || 'all';
-    const brandFilter = req.query.brand || 'all';
-
-    const products = readJsonFile('data/products.json');
-
-    const filtered = products.filter(p => {
-        const matchType = typeFilter === 'all' || p.type === typeFilter;
-        const matchBrand = brandFilter === 'all' || p.brand === brandFilter;
-        return matchType && matchBrand;
-    });
-
-    const startIndex = (page - 1) * limit;
-    const paginatedProducts = filtered.slice(startIndex, startIndex + limit);
-
-    res.json({
-        products: paginatedProducts,
-        total: filtered.length,
-    });
-});
-
 router.post('/', (req, res) => {
     try {
         const products = readProducts();

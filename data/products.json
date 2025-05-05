@@ -8,7 +8,11 @@
     "price": 1500000,
     "rating": 4.5,
     "type": "ban",
-    "brand": "Rockler"
+    "brand": "Rockler",
+    "images": [
+      "/uploads/about-us-20250502T061725.webp"
+    ],
+    "descriptionDetail": "<p>s&acirc;sasasas</p>"
   },
   {
     "id": 2,
@@ -108,10 +112,16 @@
     "code": "G007",
     "name": "Ban gỗ tre",
     "image": "./img/blog-post01.png",
-    "description": "Ban thủ công êm ái",
+    "description": "tét update ",
     "price": 750000,
     "rating": 5,
-    "type": "ban"
+    "type": "ban",
+    "images": [
+      "/uploads/service2-20250502T062113.webp",
+      "/uploads/about-us-20250502T062122.webp",
+      "/uploads/clam-20250502T062302.jpg"
+    ],
+    "descriptionDetail": "<p>test detail&nbsp;</p>"
   },
   {
     "code": "q21",
