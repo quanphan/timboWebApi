@@ -22,7 +22,6 @@ router.get("/", (req, res) => {
     res.json(posts);
 });
 
-// Lấy 1 bài viết theo ID
 router.get("/:id", (req, res) => {
     const posts = readPosts();
     const post = posts.find(p => p.id === parseInt(req.params.id));

@@ -44,7 +44,7 @@ router.post("/refresh", (req, res) => {
         if (err) return res.status(403).json({ message: "Refresh token không hợp lệ" });
 
         const accessToken = jwt.sign(
-            { id: user.id, email: user.email },
+            { id: user.id, email: user.email, admin:user.admin},
             process.env.JWT_SECRET,
             { expiresIn: "15m" }
         );

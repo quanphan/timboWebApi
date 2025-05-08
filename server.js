@@ -12,7 +12,7 @@ app.use(cors({
 
 app.use(express.json());
 
-// Import các route
+// Import route
 const authRoutes = require("./routes/auth");
 const accountRoutes = require("./routes/account");
 const postRoutes = require("./routes/posts");
@@ -20,7 +20,7 @@ const productRoutes= require("./routes/products");
 const contactRoutes= require("./routes/contact");
 const uploadRoutes = require('./routes/upload');
 
-// Use các route
+// Use route
 app.use("/api/auth", authRoutes);
 app.use("/api/account", accountRoutes);
 app.use("/api/posts", postRoutes);

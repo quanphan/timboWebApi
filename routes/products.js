@@ -51,11 +51,13 @@ router.get('/admin', (req, res) => {
 
     const products = readJsonFile('data/products.json');
 
-    const filtered = products.filter(p => {
-        const matchType = typeFilter === 'all' || p.type === typeFilter;
-        const matchBrand = brandFilter === 'all' || p.brand === brandFilter;
-        return matchType && matchBrand;
-    });
+    const filtered = products
+        .filter(p => {
+            const matchType = typeFilter === 'all' || p.type === typeFilter;
+            const matchBrand = brandFilter === 'all' || p.brand === brandFilter;
+            return matchType && matchBrand;
+        })
+        .sort((a, b) => b.id - a.id);
 
     const startIndex = (page - 1) * limit;
     const paginatedProducts = filtered.slice(startIndex, startIndex + limit);

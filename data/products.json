@@ -2,17 +2,18 @@
   {
     "id": 1,
     "code": "G001",
-    "name": "Bàn gỗ sồi",
+    "name": "Table OSK",
     "image": "./img/shop/clam.jpg",
-    "description": "Bàn gỗ sồi tự nhiên phong cách hiện đại.",
-    "price": 1500000,
+    "description": "osk table modem",
+    "price": "68.00",
     "rating": 4.5,
     "type": "ban",
     "brand": "Rockler",
     "images": [
-      "/uploads/about-us-20250502T061725.webp"
+      "/uploads/about-us-20250502T061725.webp",
+      "/uploads/phone-20250506T020217.png"
     ],
-    "descriptionDetail": "<p>s&acirc;sasasas</p>"
+    "descriptionDetail": "<p>A more complex controller action might return different types of action results depending on the values of the parameters passed to the controller action. A controller action can return a variety of types of action results including a&nbsp;<code>ViewResult</code>,&nbsp;<code>RedirectToRouteResult</code>, or&nbsp;<code>JsonResult</code>.</p>"
   },
   {
     "id": 2,
@@ -125,13 +126,28 @@
   },
   {
     "code": "q21",
-    "name": "rr",
+    "name": " Single Clam",
     "image": "/uploads/clam-20250429T054058.jpg",
-    "description": "1212",
-    "price": "222",
+    "description": "cao kep ",
+    "price": "8.5",
     "rating": "1.2",
     "type": "ban",
     "brand": "WoodCraft",
-    "id": 1745905288602
+    "id": 1745905288602,
+    "images": [
+      "/uploads/phone-20250506T022701.png"
+    ],
+    "descriptionDetail": "<p>For example, the modified&nbsp;<code>Details()</code>&nbsp;action in Listing 5 returns the&nbsp;<code>Details</code>&nbsp;view when you pass a valid product Id to the action. If you pass an invalid product Id -- an Id with a value less than 1 -- then you are redirected to the&nbsp;<code>Index()</code> action.</p>"
+  },
+  {
+    "code": "123",
+    "name": "table modem",
+    "image": "/uploads/phone-20250506T020432.png",
+    "description": "sdsdsd",
+    "price": "",
+    "rating": "",
+    "type": "ban",
+    "brand": "",
+    "id": 1746497076609
   }
 ]
