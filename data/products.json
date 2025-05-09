@@ -143,11 +143,13 @@
     "code": "123",
     "name": "table modem",
     "image": "/uploads/phone-20250506T020432.png",
-    "description": "sdsdsd",
-    "price": "",
+    "description": "Ross wood from VietNam ",
+    "price": "79",
     "rating": "",
     "type": "ban",
-    "brand": "",
-    "id": 1746497076609
+    "brand": "WoodCraft",
+    "id": 1746497076609,
+    "descriptionDetail": "<p>asasasas</p>\n<p>asas</p>\n<p>asas</p>\n<p>asasasasasass</p>",
+    "images": []
   }
 ]

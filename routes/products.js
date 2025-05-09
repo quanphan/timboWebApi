@@ -36,6 +36,11 @@ router.get("/types", (req, res) => {
     const types = [...new Set(products.map(p => p.type))];
     res.json(types);
 });
+router.get("/brands", (req, res) => {
+    const products = loadProducts();
+    const brands = [...new Set(products.map(p => p.brand))];
+    res.json(brands);
+});
 
 // GET all products
 router.get('/admin-list', (req, res) => {
@@ -75,6 +80,7 @@ router.get("/", (req, res) => {
     const type = req.query.type;
     const brand = req.query.brand;
     const search = req.query.search?.toLowerCase() || '';
+    const sort = req.query.sort || 'latest';
 
     let filtered = products;
 
@@ -91,6 +97,15 @@ router.get("/", (req, res) => {
             p.name.toLowerCase().includes(search) ||
             p.description.toLowerCase().includes(search)
         );
+    }
+
+    // Sort
+    if (sort === 'price-asc') {
+        filtered.sort((a, b) => a.price - b.price);
+    } else if (sort === 'price-desc') {
+        filtered.sort((a, b) => b.price - a.price);
+    } else if (sort === 'latest') {
+        filtered.sort((a, b) => b.id - a.id); // assume newest has higher id
     }
 
     const total = filtered.length;
