@@ -1,0 +1,26 @@
+[
+  {
+    "id": 1746935088293,
+    "productId": "1746497076609",
+    "rating": 4,
+    "content": "sdsdsdsd",
+    "quality": 5,
+    "shipping": 4,
+    "service": 5,
+    "recommend": false,
+    "name": "quan phan",
+    "createdAt": "2025-05-11T03:44:48.293Z"
+  },
+  {
+    "id": 1746935618664,
+    "productId": "1746497076609",
+    "rating": 4,
+    "content": "good product ",
+    "quality": 5,
+    "shipping": 3,
+    "service": 4,
+    "recommend": true,
+    "name": "test ",
+    "createdAt": "2025-05-11T03:53:38.664Z"
+  }
+]

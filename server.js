@@ -19,7 +19,7 @@ const postRoutes = require("./routes/posts");
 const productRoutes= require("./routes/products");
 const contactRoutes= require("./routes/contact");
 const uploadRoutes = require('./routes/upload');
-
+const reviewRoutes = require('./routes/reviews');
 // Use route
 app.use("/api/auth", authRoutes);
 app.use("/api/account", accountRoutes);
@@ -28,6 +28,7 @@ app.use("/api/products", productRoutes);
 app.use("/api/contact", contactRoutes);
 app.use('/api/uploads', uploadRoutes);
 app.use('/uploads', express.static('uploads'));
+app.use('/api/reviews', reviewRoutes);
 
 const PORT = process.env.PORT || 5050;
 app.get("/", (req, res) => {
