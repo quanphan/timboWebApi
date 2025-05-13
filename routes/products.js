@@ -1,178 +1,124 @@
 const express = require("express");
-const fs = require("fs");
-const path = require("path");
-
 const router = express.Router();
-const PRODUCT_FILE = path.join(__dirname, '../data/products.json');
-const dataPath = path.join(__dirname, "../data/products.json");
-const { readJsonFile } = require('../utils/fileService');
+const Product = require('../models/Product');
 
-const loadProducts = () => {
-    const data = fs.readFileSync(dataPath, "utf-8");
-    return JSON.parse(data);
-};
-
-const writeProducts = (products) => {
+// GET types from MongoDB
+router.get("/types", async (req, res) => {
     try {
-        fs.writeFileSync(PRODUCT_FILE, JSON.stringify(products, null, 2));
+        const types = await Product.distinct("type");
+        res.json(types.filter(Boolean));
     } catch (error) {
-        console.error('Error writing product file:', error);
+        res.status(500).json({ message: 'Failed to fetch types', error });
     }
-};
+});
 
-const readProducts = () => {
+// GET brands from MongoDB
+router.get("/brands", async (req, res) => {
     try {
-        if (!fs.existsSync(PRODUCT_FILE)) fs.writeFileSync(PRODUCT_FILE, '[]');
-        const data = fs.readFileSync(PRODUCT_FILE, 'utf-8');
-        return JSON.parse(data);
+        const brands = await Product.distinct("brand");
+        res.json(brands.filter(Boolean));
     } catch (error) {
-        console.error('Error reading product file:', error);
-        return [];
+        res.status(500).json({ message: 'Failed to fetch brands', error });
     }
-};
-
-router.get("/types", (req, res) => {
-    const products = loadProducts();
-    const types = [...new Set(products.map(p => p.type))];
-    res.json(types);
-});
-router.get("/brands", (req, res) => {
-    const products = loadProducts();
-    const brands = [...new Set(products.map(p => p.brand))];
-    res.json(brands);
 });
 
-// GET all products
-router.get('/admin-list', (req, res) => {
-    const products = readProducts();
-    res.status(200).json(products);
-});
-
-router.get('/admin', (req, res) => {
-    const page = parseInt(req.query.page) || 1;
-    const limit = parseInt(req.query.limit) || 5;
-    const typeFilter = req.query.type || 'all';
-    const brandFilter = req.query.brand || 'all';
-
-    const products = readJsonFile('data/products.json');
-
-    const filtered = products
-        .filter(p => {
-            const matchType = typeFilter === 'all' || p.type === typeFilter;
-            const matchBrand = brandFilter === 'all' || p.brand === brandFilter;
-            return matchType && matchBrand;
-        })
-        .sort((a, b) => b.id - a.id);
-
-    const startIndex = (page - 1) * limit;
-    const paginatedProducts = filtered.slice(startIndex, startIndex + limit);
-
-    res.json({
-        products: paginatedProducts,
-        total: filtered.length,
-    });
-});
-router.get("/", (req, res) => {
-    const products = loadProducts(); // từ file .json
-
-    const page = parseInt(req.query.page) || 1;
-    const pageSize = parseInt(req.query.pageSize) || 10;
-    const type = req.query.type;
-    const brand = req.query.brand;
-    const search = req.query.search?.toLowerCase() || '';
-    const sort = req.query.sort || 'latest';
-
-    let filtered = products;
-
-    if (type && type !== 'all') {
-        filtered = filtered.filter(p => p.type === type);
-    }
-
-    if (brand && brand !== 'all') {
-        filtered = filtered.filter(p => p.brand === brand);
-    }
-
-    if (search) {
-        filtered = filtered.filter(p =>
-            p.name.toLowerCase().includes(search) ||
-            p.description.toLowerCase().includes(search)
-        );
-    }
-
-    // Sort
-    if (sort === 'price-asc') {
-        filtered.sort((a, b) => a.price - b.price);
-    } else if (sort === 'price-desc') {
-        filtered.sort((a, b) => b.price - a.price);
-    } else if (sort === 'latest') {
-        filtered.sort((a, b) => b.id - a.id); // assume newest has higher id
-    }
-
-    const total = filtered.length;
-    const start = (page - 1) * pageSize;
-    const paginated = filtered.slice(start, start + pageSize);
-
-    res.json({ products: paginated, total });
-});
-router.get('/:id', (req, res) => {
-    const products = loadProducts(); // đọc từ file .json
-    const id = parseInt(req.params.id);
-
-    const product = products.find(p => p.id === id);
-
-    if (!product) {
-        return res.status(404).json({ message: 'Product not found' });
-    }
-
-    res.json(product);
-});
-router.post('/', (req, res) => {
+// GET paginated products for admin panel
+router.get('/admin', async (req, res) => {
     try {
-        const products = readProducts();
-        const newProduct = { ...req.body, id: Date.now() };
-        products.push(newProduct);
-        writeProducts(products);
-        res.status(201).json({ message: 'Product added.', product: newProduct });
-    } catch (error) {
-        res.status(500).json({ error: 'Failed to add product.' });
+        const page = parseInt(req.query.page) || 1;
+        const limit = parseInt(req.query.limit) || 5;
+        const typeFilter = req.query.type || 'all';
+        const brandFilter = req.query.brand || 'all';
+
+        const query = {};
+        if (typeFilter !== 'all') query.type = typeFilter;
+        if (brandFilter !== 'all') query.brand = brandFilter;
+
+        const total = await Product.countDocuments(query);
+        const products = await Product.find(query)
+            .skip((page - 1) * limit)
+            .limit(limit)
+            .sort({ _id: -1 });
+
+        res.json({ products, total });
+    } catch (err) {
+        res.status(500).json({ message: 'Admin product fetch error', error: err });
     }
 });
-router.delete('/:id', (req, res) => {
-    try {
-        const id = parseInt(req.params.id);
-        const products = readProducts();
-        const updated = products.filter((p) => p.id !== id);
 
-        if (updated.length === products.length) {
-            return res.status(404).json({ error: 'Product not found.' });
+// GET paginated + filtered products (client view)
+router.get('/', async (req, res) => {
+    try {
+        const page = parseInt(req.query.page) || 1;
+        const pageSize = parseInt(req.query.pageSize) || 10;
+        const type = req.query.type;
+        const brand = req.query.brand;
+        const search = req.query.search?.toLowerCase() || '';
+
+        const query = {};
+        if (type && type !== 'all') query.type = type;
+        if (brand && brand !== 'all') query.brand = brand;
+        if (search) {
+            query.$or = [
+                { name: { $regex: search, $options: 'i' } },
+                { description: { $regex: search, $options: 'i' } },
+            ];
         }
 
-        writeProducts(updated);
-        res.status(200).json({ message: 'Product deleted.' });
-    } catch (error) {
-        res.status(500).json({ error: 'Failed to delete product.' });
+        const total = await Product.countDocuments(query);
+        const products = await Product.find(query)
+            .skip((page - 1) * pageSize)
+            .limit(pageSize)
+            .sort({ _id: -1 });
+
+        res.json({ products, total });
+    } catch (err) {
+        res.status(500).json({ message: 'Server error', error: err });
     }
 });
+
+// GET single product by ID
+router.get('/:id', async (req, res) => {
+    try {
+        const product = await Product.findById(req.params.id);
+        if (!product) return res.status(404).json({ message: 'Product not found' });
+        res.json(product);
+    } catch (err) {
+        res.status(500).json({ message: 'Failed to get product', error: err });
+    }
+});
+
+// POST new product
+router.post('/', async (req, res) => {
+    try {
+        const newProduct = new Product(req.body);
+        const saved = await newProduct.save();
+        res.status(201).json({ message: 'Product added', product: saved });
+    } catch (err) {
+        res.status(500).json({ message: 'Failed to add product', error: err });
+    }
+});
+
+// DELETE product
+router.delete('/:id', async (req, res) => {
+    try {
+        const deleted = await Product.findByIdAndDelete(req.params.id);
+        if (!deleted) return res.status(404).json({ message: 'Product not found' });
+        res.json({ message: 'Product deleted' });
+    } catch (err) {
+        res.status(500).json({ message: 'Failed to delete product', error: err });
+    }
+});
+
 // PUT update product
-router.put('/:id', (req, res) => {
+router.put('/:id', async (req, res) => {
     try {
-        const id = parseInt(req.params.id);
-        const products = readProducts();
-        const index = products.findIndex((p) => p.id === id);
-
-        if (index === -1) {
-            return res.status(404).json({ error: 'Product not found.' });
-        }
-
-        const updatedProduct = { ...products[index], ...req.body };
-        products[index] = updatedProduct;
-        writeProducts(products);
-
-        return res.status(200).json({ message: 'Product updated.', product: updatedProduct });
-    } catch (error) {
-        res.status(500).json({ error: 'Failed to update product.' });
+        const updated = await Product.findByIdAndUpdate(req.params.id, req.body, { new: true });
+        if (!updated) return res.status(404).json({ message: 'Product not found' });
+        res.json({ message: 'Product updated', product: updated });
+    } catch (err) {
+        res.status(500).json({ message: 'Failed to update product', error: err });
     }
 });
-
 
 module.exports = router;

@@ -1,52 +1,48 @@
 const express = require('express');
-const fs = require('fs');
-const path = require('path');
-
 const router = express.Router();
-const REVIEWS_FILE = path.join(__dirname, '../data/reviews.json');
+const jwt = require('jsonwebtoken');
+const Review = require('../models/Review');
+const authenticateToken = require('../middleware/auth');
 
-// Load all reviews
-const readReviews = () => {
-    if (!fs.existsSync(REVIEWS_FILE)) fs.writeFileSync(REVIEWS_FILE, '[]');
-    return JSON.parse(fs.readFileSync(REVIEWS_FILE, 'utf-8'));
-};
+router.post('/', authenticateToken, async (req, res) => {
+    const { productId, rating, content, quality, shipping, service, recommend } = req.body;
 
-// Save reviews
-const writeReviews = (reviews) => {
-    fs.writeFileSync(REVIEWS_FILE, JSON.stringify(reviews, null, 2));
-};
-router.post('/', (req, res) => {
-    const { productId, rating, content, quality, shipping, service, recommend, name } = req.body;
-
-    if (!productId || !rating || !content || !name) {
+    if (!productId || !rating || !content) {
         return res.status(400).json({ message: 'Missing required fields' });
     }
 
-    const reviews = readReviews();
-    const newReview = {
-        id: Date.now(),
-        productId,
-        rating,
-        content,
-        quality,
-        shipping,
-        service,
-        recommend,
-        name,
-        createdAt: new Date().toISOString()
-    };
+    try {
+        const newReview = new Review({
+            productId,
+            name: req.user.email,
+            rating,
+            content,
+            recommend,
+            quality,
+            shipping,
+            service,
+            createdAt: new Date()
+        });
 
-    reviews.push(newReview);
-    writeReviews(reviews);
-
-    res.status(201).json({ message: 'Review saved', review: newReview });
+        await newReview.save();
+        res.status(201).json({ message: 'Review saved', review: newReview });
+    } catch (err) {
+        console.error('❌ Failed to save review:', err);
+        res.status(500).json({ message: 'Server error' });
+    }
 });
 
-router.get('/:productId', (req, res) => {
-    const reviews = readReviews();
+// GET: Lấy đánh giá theo sản phẩm
+router.get('/:productId', async (req, res) => {
     const productId = req.params.productId;
-    const filtered = reviews.filter(r => r.productId == productId);
-    res.json(filtered);
+
+    try {
+        const reviews = await Review.find({ productId }).sort({ createdAt: -1 });
+        res.json(reviews);
+    } catch (err) {
+        console.error('❌ Failed to get reviews:', err);
+        res.status(500).json({ message: 'Server error' });
+    }
 });
 
 module.exports = router;

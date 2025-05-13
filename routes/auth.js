@@ -1,102 +1,92 @@
 const express = require("express");
 const jwt = require("jsonwebtoken");
-const fs = require("fs");
-const path = require("path");
 const axios = require("axios");
 const router = express.Router();
-const usersPath = path.join(__dirname, "../data/users.json");
-
-function readUsers() {
-    if (!fs.existsSync(usersPath)) return [];
-    const data = fs.readFileSync(usersPath, "utf-8");
-    return JSON.parse(data);
-}
+const User = require("../models/User");
+const {compare} = require("bcrypt");
 
 // Login
-router.post("/login", (req, res) => {
-    const { email, password } = req.body;
-    const users = readUsers();
+router.post('/login', async (req, res) => {
+    try {
+        const { email, password } = req.body;
 
-    const user = users.find((u) => u.email === email && u.password === password);
-    if (!user) return res.status(401).json({ message: "Sai email hoặc mật khẩu" });
+        if (!email || !password)
+            return res.status(400).json({ message: 'Email and password are required' });
 
-    const accessToken = jwt.sign(
-        { id: user.id, email: user.email },
-        process.env.JWT_SECRET,
-        { expiresIn: "30m" } // access token sống 15 phút
-    );
+        const user = await User.findOne({ email });
+        if (!user)
+            return res.status(401).json({ message: 'Invalid email' });
 
-    const refreshToken = jwt.sign(
-        { id: user.id, email: user.email },
-        process.env.REFRESH_SECRET,
-        { expiresIn: "1d" } // refresh token sống 1 ngày
-    );
+        const isMatch = await compare(password, user.password);
+        if (!isMatch)
+            return res.status(401).json({ message: 'Invalid password' });
 
-    res.json({ accessToken, refreshToken });
+        const accessToken = jwt.sign(
+            { id: user._id, email: user.email, admin: user.admin, userType:user.userType },
+            process.env.JWT_SECRET,
+            { expiresIn: '1h' }
+        );
+
+        const refreshToken = jwt.sign(
+            { id: user._id, email: user.email },
+            process.env.REFRESH_SECRET,
+            { expiresIn: '1d' }
+        );
+
+        res.json({ accessToken, refreshToken });
+    } catch (err) {
+        console.error('Login error:', err);
+        res.status(500).json({ message: 'Server error' });
+    }
 });
-
 // Refresh
 router.post("/refresh", (req, res) => {
     const { refreshToken } = req.body;
-    if (!refreshToken) return res.status(401).json({ message: "Thiếu refresh token" });
+    if (!refreshToken) return res.status(401).json({ message: "not found refresh token" });
 
     jwt.verify(refreshToken, process.env.REFRESH_SECRET, (err, user) => {
-        if (err) return res.status(403).json({ message: "Refresh token không hợp lệ" });
+        if (err) return res.status(403).json({ message: "Refresh token invalid" });
 
         const accessToken = jwt.sign(
-            { id: user.id, email: user.email, admin:user.admin},
+            { id: user.id, email: user.email },
             process.env.JWT_SECRET,
-            { expiresIn: "30m" }
+            { expiresIn: "1h" }
         );
 
         res.json({ accessToken });
     });
 });
 
+// Google Login
 router.post("/google-login", async (req, res) => {
     const { credential } = req.body;
-
-    if (!credential) return res.status(400).json({ message: "Thiếu Google token" });
+    if (!credential) return res.status(400).json({ message: "Not found Google token" });
 
     try {
-        // Gửi token lên Google xác minh
         const googleRes = await axios.get(`https://oauth2.googleapis.com/tokeninfo?id_token=${credential}`);
-        const { email, name, sub } = googleRes.data;
+        const { email, name, sub: googleId } = googleRes.data;
 
-        let users = readUsers();
-        let user = users.find(u => u.email === email);
+        let user = await User.findOne({ email });
 
-        // Nếu chưa có, tạo user mới
         if (!user) {
-            user = {
-                id: Date.now(),
+            user = new User({
                 email,
                 name,
-                googleId: sub
-            };
-            users.push(user);
-            writeUsers(users);
+                googleId
+            });
+            await user.save();
         }
 
-        // Tạo JWT của hệ thống
         const token = jwt.sign(
-            { id: user.id, email: user.email },
+            { id: user._id, email: user.email },
             process.env.JWT_SECRET,
             { expiresIn: "1h" }
         );
 
         res.json({ token });
-
     } catch (err) {
-        console.error("⛔ Lỗi xác minh Google token:");
-        if (err.response) {
-            console.error("Status:", err.response.status);
-            console.error("Data:", err.response.data);
-        } else {
-            console.error("Message:", err.message);
-        }
-
-        res.status(401).json({ message: "Google token không hợp lệ hoặc đã hết hạn" });
+        console.error("⛔ Google token error:", err.message);
+        res.status(401).json({ message: "Google token không hợp lệ" });
     }
 });
 
