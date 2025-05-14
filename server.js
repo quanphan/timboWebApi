@@ -28,6 +28,7 @@ const productRoutes= require("./routes/products");
 const contactRoutes= require("./routes/contact");
 const uploadRoutes = require('./routes/upload');
 const reviewRoutes = require('./routes/reviews');
+const cartRoutes = require("./routes/cart");
 // Use route
 app.use("/api/auth", authRoutes);
 app.use("/api/account", accountRoutes);
@@ -37,6 +38,7 @@ app.use("/api/contact", contactRoutes);
 app.use('/api/uploads', uploadRoutes);
 app.use('/uploads', express.static('uploads'));
 app.use('/api/reviews', reviewRoutes);
+app.use("/api/cart", cartRoutes);
 
 const PORT = process.env.PORT || 5050;
 app.get("/", (req, res) => {

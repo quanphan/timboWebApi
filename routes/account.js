@@ -2,7 +2,7 @@ const express = require("express");
 const jwt = require("jsonwebtoken");
 const router = express.Router();
 const User = require("../models/User");
-const authenticateToken = require('../middleware/auth');
+const { authenticateToken, isAdmin } = require("../middleware/auth");
 const bcrypt = require('bcrypt');
 
 // Register user
@@ -63,6 +63,46 @@ router.put("/me", authenticateToken, async (req, res) => {
     } catch (err) {
         console.error("PUT /me error:", err);
         res.status(500).json({ message: "Update failed" });
+    }
+});
+
+router.get("/", authenticateToken, isAdmin, async (req, res) => {
+    try {
+        const users = await User.find().select("-password"); // exclude password
+        res.json(users);
+    } catch (err) {
+        console.error("Failed to fetch users:", err);
+        res.status(500).json({ message: "Server error" });
+    }
+});
+router.put("/:id", authenticateToken, isAdmin, async (req, res) => {
+    try {
+        const { name, phone, userType, isAdmin } = req.body;
+
+        const updateData = {};
+        if (name !== undefined) updateData.name = name;
+        if (phone !== undefined) updateData.phone = phone;
+        if (userType !== undefined) updateData.userType = userType;
+        if (isAdmin !== undefined) updateData.admin = isAdmin;
+
+        const user = await User.findByIdAndUpdate(req.params.id, updateData, { new: true });
+        if (!user) return res.status(404).json({ message: "User not found" });
+
+        res.json({ message: "User updated", user });
+    } catch (err) {
+        console.error("Failed to update user:", err);
+        res.status(500).json({ message: "Server error" });
+    }
+});
+router.delete("/:id", authenticateToken, isAdmin, async (req, res) => {
+    try {
+        const user = await User.findByIdAndDelete(req.params.id);
+        if (!user) return res.status(404).json({ message: "User not found" });
+
+        res.json({ message: "User deleted" });
+    } catch (err) {
+        console.error("Failed to delete user:", err);
+        res.status(500).json({ message: "Server error" });
     }
 });
 

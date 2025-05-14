@@ -2,7 +2,7 @@ const express = require('express');
 const router = express.Router();
 const jwt = require('jsonwebtoken');
 const Review = require('../models/Review');
-const authenticateToken = require('../middleware/auth');
+const { authenticateToken, isAdmin } = require("../middleware/auth");
 
 router.post('/', authenticateToken, async (req, res) => {
     const { productId, rating, content, quality, shipping, service, recommend } = req.body;

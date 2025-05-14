@@ -1,7 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const Message = require('../models/Message');
-const authenticateToken = require("../middleware/auth");
+const { authenticateToken, isAdmin } = require("../middleware/auth");
 
 // POST: new message
 router.post('/', async (req, res) => {

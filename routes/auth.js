@@ -48,7 +48,7 @@ router.post("/refresh", (req, res) => {
         if (err) return res.status(403).json({ message: "Refresh token invalid" });
 
         const accessToken = jwt.sign(
-            { id: user.id, email: user.email },
+            { id: user.id, email: user.email, admin: user.admin, userType:user.userType },
             process.env.JWT_SECRET,
             { expiresIn: "1h" }
         );
@@ -78,7 +78,7 @@ router.post("/google-login", async (req, res) => {
         }
 
         const token = jwt.sign(
-            { id: user._id, email: user.email },
+            { id: user._id, email: user.email, admin: user.admin, userType:user.userType },
             process.env.JWT_SECRET,
             { expiresIn: "1h" }
         );
