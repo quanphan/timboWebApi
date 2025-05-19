@@ -1,15 +1,18 @@
 const express = require("express");
+const Cart = require("../models/Cart");
 const router = express.Router();
 
 let cartData = {}; // In-memory. Replace with DB later if needed
 
 // Add to cart
-router.post("/", (req, res) => {
+router.post("/", async(req, res) => {
     const { userId, product, quantity } = req.body;
 
     if (!userId || !product || !product._id || !quantity) {
         return res.status(400).json({ message: "Missing fields" });
     }
+
+    // const updated = await Cart.findByIdAndUpdate(req.params.id, req.body, { new: true });
 
     if (!cartData[userId]) cartData[userId] = [];
 
