@@ -29,6 +29,7 @@ const contactRoutes= require("./routes/contact");
 const uploadRoutes = require('./routes/upload');
 const reviewRoutes = require('./routes/reviews');
 const cartRoutes = require("./routes/cart");
+
 // Use route
 app.use("/api/auth", authRoutes);
 app.use("/api/account", accountRoutes);
