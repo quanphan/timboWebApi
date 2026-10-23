@@ -1,1 +1,6 @@
 /.idea
+/uploads/gallery/images/*
+/uploads/gallery/videos/*
+!/uploads/gallery/images/.gitkeep
+!/uploads/gallery/videos/.gitkeep
+
