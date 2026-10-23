@@ -5,7 +5,7 @@
   "scripts": {
     "start": "node server.js",
     "dev": "node --watch server.js",
-    "test": "node --test --test-concurrency=1 tests/health.test.js tests/auth.test.js tests/catalog.test.js tests/customBuild.test.js tests/adminInquiries.test.js tests/accessControl.test.js tests/catalogAdmin.test.js tests/contact.test.js tests/brandSettings.test.js tests/gallery.test.js",
+    "test": "node --test --test-concurrency=1 tests/health.test.js tests/config.test.js tests/auth.test.js tests/catalog.test.js tests/customBuild.test.js tests/adminInquiries.test.js tests/accessControl.test.js tests/catalogAdmin.test.js tests/contact.test.js tests/brandSettings.test.js tests/gallery.test.js",
     "seed:custom-build": "node scripts/seedCustomBuildOptions.js",
     "seed:superadmin": "node scripts/seedSuperAdmin.js",
     "migrate:json": "node scripts/migrateJsonData.js",

@@ -1,4 +1,5 @@
 /.idea
+.env
 /uploads/gallery/images/*
 /uploads/gallery/videos/*
 !/uploads/gallery/images/.gitkeep

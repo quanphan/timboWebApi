@@ -14,6 +14,10 @@ try {
     process.exit(1);
 }
 
+for (const message of config.warnings) {
+    console.error(JSON.stringify({ level: 'error', message }));
+}
+
 connectDb(config)
     .then(() => {
         const app = createApp({ config });

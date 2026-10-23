@@ -30,8 +30,9 @@ function getConfig(env = process.env) {
     if (corsOrigins.includes('*')) {
         throw new Error('CORS_ORIGIN must list explicit origins.');
     }
+    const warnings = [];
     if (nodeEnv === 'production' && corsOrigins.length === 0) {
-        throw new Error('CORS_ORIGIN must list at least one origin in production.');
+        warnings.push('CORS_ORIGIN must list at least one origin in production. Browser clients stay blocked until it is set.');
     }
 
     const jwtSecret = env.JWT_SECRET || '';
@@ -64,8 +65,13 @@ function getConfig(env = process.env) {
         refreshSecret: refreshSecret || 'test-refresh-secret-value',
         accessTtl: env.ACCESS_TOKEN_TTL || '15m',
         refreshTtlMs: Number(env.REFRESH_TOKEN_TTL_MS || 7 * 24 * 60 * 60 * 1000),
-        corsOrigins: corsOrigins.length > 0 ? corsOrigins : [...LOCAL_DEV_ORIGINS],
-        trustProxy: env.TRUST_PROXY === 'true' || env.TRUST_PROXY === '1',
+        corsOrigins: corsOrigins.length > 0
+            ? corsOrigins
+            : (nodeEnv === 'production' ? [] : [...LOCAL_DEV_ORIGINS]),
+        trustProxy: env.TRUST_PROXY === undefined || env.TRUST_PROXY === ''
+            ? Boolean(env.RAILWAY_ENVIRONMENT || env.RAILWAY_PROJECT_ID)
+            : env.TRUST_PROXY === 'true' || env.TRUST_PROXY === '1',
+        warnings,
         jsonBodyLimit: '100kb',
         uploadsDir,
         galleryDir,
