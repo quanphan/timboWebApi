@@ -7,6 +7,19 @@ const LOCAL_DEV_ORIGINS = [
     'http://127.0.0.1:3000',
 ];
 
+const PHANQUAN_GUITARS_ORIGIN = 'https://phanquan-guitars.netlify.app';
+
+function uniqueOrigins(origins) {
+    const seen = new Set();
+    const unique = [];
+    for (const origin of origins) {
+        if (!origin || seen.has(origin)) continue;
+        seen.add(origin);
+        unique.push(origin);
+    }
+    return unique;
+}
+
 function getConfig(env = process.env) {
     const nodeEnv = env.NODE_ENV || 'development';
     if (!['development', 'test', 'production'].includes(nodeEnv)) {
@@ -31,9 +44,10 @@ function getConfig(env = process.env) {
         throw new Error('CORS_ORIGIN must list explicit origins.');
     }
     const warnings = [];
-    if (nodeEnv === 'production' && corsOrigins.length === 0) {
-        warnings.push('CORS_ORIGIN must list at least one origin in production. Browser clients stay blocked until it is set.');
-    }
+    const baseOrigins = corsOrigins.length > 0
+        ? corsOrigins
+        : (nodeEnv === 'production' ? [] : [...LOCAL_DEV_ORIGINS]);
+    const allowedOrigins = uniqueOrigins([...baseOrigins, PHANQUAN_GUITARS_ORIGIN]);
 
     const jwtSecret = env.JWT_SECRET || '';
     const refreshSecret = env.REFRESH_SECRET || '';
@@ -65,9 +79,7 @@ function getConfig(env = process.env) {
         refreshSecret: refreshSecret || 'test-refresh-secret-value',
         accessTtl: env.ACCESS_TOKEN_TTL || '15m',
         refreshTtlMs: Number(env.REFRESH_TOKEN_TTL_MS || 7 * 24 * 60 * 60 * 1000),
-        corsOrigins: corsOrigins.length > 0
-            ? corsOrigins
-            : (nodeEnv === 'production' ? [] : [...LOCAL_DEV_ORIGINS]),
+        corsOrigins: allowedOrigins,
         trustProxy: env.TRUST_PROXY === undefined || env.TRUST_PROXY === ''
             ? Boolean(env.RAILWAY_ENVIRONMENT || env.RAILWAY_PROJECT_ID)
             : env.TRUST_PROXY === 'true' || env.TRUST_PROXY === '1',
