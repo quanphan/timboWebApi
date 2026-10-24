@@ -13,7 +13,11 @@ const productionSecrets = {
 describe('production config', () => {
     it('allows the PhanQuan frontend when CORS_ORIGIN is missing', () => {
         const config = getConfig({ ...productionSecrets });
-        assert.deepEqual(config.corsOrigins, ['https://phanquan-guitars.netlify.app']);
+        assert.deepEqual(config.corsOrigins, [
+            'https://phanquanguitars.com',
+            'https://www.phanquanguitars.com',
+            'https://phanquan-guitars.netlify.app',
+        ]);
         assert.equal(config.trustProxy, false);
         assert.deepEqual(config.warnings, []);
     });
@@ -26,6 +30,8 @@ describe('production config', () => {
         assert.deepEqual(config.corsOrigins, [
             'https://timbocraft.example',
             'https://guitars.example',
+            'https://phanquanguitars.com',
+            'https://www.phanquanguitars.com',
             'https://phanquan-guitars.netlify.app',
         ]);
     });
@@ -40,6 +46,8 @@ describe('production config', () => {
             'http://127.0.0.1:5173',
             'http://localhost:3000',
             'http://127.0.0.1:3000',
+            'https://phanquanguitars.com',
+            'https://www.phanquanguitars.com',
             'https://phanquan-guitars.netlify.app',
         ]);
     });
@@ -52,6 +60,8 @@ describe('production config', () => {
         });
         assert.deepEqual(config.corsOrigins, [
             'https://guitars.example',
+            'https://phanquanguitars.com',
+            'https://www.phanquanguitars.com',
             'https://phanquan-guitars.netlify.app',
         ]);
         assert.equal(config.trustProxy, true);

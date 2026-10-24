@@ -7,7 +7,11 @@ const LOCAL_DEV_ORIGINS = [
     'http://127.0.0.1:3000',
 ];
 
-const PHANQUAN_GUITARS_ORIGIN = 'https://phanquan-guitars.netlify.app';
+const PHANQUAN_GUITARS_ORIGINS = [
+    'https://phanquanguitars.com',
+    'https://www.phanquanguitars.com',
+    'https://phanquan-guitars.netlify.app',
+];
 
 function uniqueOrigins(origins) {
     const seen = new Set();
@@ -47,7 +51,7 @@ function getConfig(env = process.env) {
     const baseOrigins = corsOrigins.length > 0
         ? corsOrigins
         : (nodeEnv === 'production' ? [] : [...LOCAL_DEV_ORIGINS]);
-    const allowedOrigins = uniqueOrigins([...baseOrigins, PHANQUAN_GUITARS_ORIGIN]);
+    const allowedOrigins = uniqueOrigins([...baseOrigins, ...PHANQUAN_GUITARS_ORIGINS]);
 
     const jwtSecret = env.JWT_SECRET || '';
     const refreshSecret = env.REFRESH_SECRET || '';
