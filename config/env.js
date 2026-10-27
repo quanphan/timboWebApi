@@ -39,6 +39,14 @@ function uniqueOrigins(origins) {
     return unique;
 }
 
+function describeSecret(value) {
+    const text = value == null ? '' : String(value);
+    return {
+        present: text.length > 0,
+        lengthOk: text.length >= 16,
+    };
+}
+
 function getConfig(env = process.env) {
     const nodeEnv = env.NODE_ENV || 'development';
     if (!['development', 'test', 'production'].includes(nodeEnv)) {
@@ -119,4 +127,4 @@ function getConfig(env = process.env) {
     };
 }
 
-module.exports = { getConfig };
+module.exports = { describeSecret, getConfig };

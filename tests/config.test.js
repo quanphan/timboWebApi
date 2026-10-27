@@ -1,6 +1,6 @@
 const assert = require('node:assert/strict');
 const { describe, it } = require('node:test');
-const { getConfig } = require('../config/env');
+const { describeSecret, getConfig } = require('../config/env');
 
 const productionSecrets = {
     NODE_ENV: 'production',
@@ -9,6 +9,16 @@ const productionSecrets = {
     REFRESH_SECRET: 'abcdefabcdefabcd',
     MONGO_URI: 'mongodb://127.0.0.1:27017',
 };
+
+describe('secret diagnostics', () => {
+    it('reports presence and length without the secret value', () => {
+        assert.deepEqual(describeSecret(undefined), { present: false, lengthOk: false });
+        assert.deepEqual(describeSecret(''), { present: false, lengthOk: false });
+        assert.deepEqual(describeSecret('short-secret'), { present: true, lengthOk: false });
+        assert.deepEqual(describeSecret('1234567890123456'), { present: true, lengthOk: true });
+        assert.equal(JSON.stringify(describeSecret('1234567890123456')).includes('1234567890123456'), false);
+    });
+});
 
 describe('production config', () => {
     it('allows the PhanQuan frontend when CORS_ORIGIN is missing', () => {

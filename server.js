@@ -4,7 +4,14 @@ dotenv.config();
 
 const { createApp } = require('./app');
 const { connectDb } = require('./config/db');
-const { getConfig } = require('./config/env');
+const { describeSecret, getConfig } = require('./config/env');
+
+console.log(JSON.stringify({
+    level: 'info',
+    message: 'Secret check',
+    jwtSecret: describeSecret(process.env.JWT_SECRET),
+    refreshSecret: describeSecret(process.env.REFRESH_SECRET),
+}));
 
 let config;
 try {
