@@ -2,6 +2,11 @@ const { randomUUID } = require('node:crypto');
 const { ApiError } = require('../../utils/errors');
 const { isCalculatedValueField } = require('./fields');
 const { isPlainObject } = require('./objects');
+const {
+    CUSTOM_BUILD_MAX_IMAGES,
+    customBuildUploadExists,
+    sanitizeCustomBuildUploadPaths,
+} = require('../uploadService');
 const { extractDraftId, inquirySubmissionKey } = require('./submissionKey');
 
 const NAME_MAX_LENGTH = 100;
@@ -10,7 +15,7 @@ const PHONE_MIN_LENGTH = 7;
 const PHONE_MAX_LENGTH = 30;
 const MESSAGE_MAX_LENGTH = 2000;
 const INQUIRY_STATUS = 'received';
-const ALLOWED_INQUIRY_FIELDS = new Set(['customer', 'configuration', 'message']);
+const ALLOWED_INQUIRY_FIELDS = new Set(['customer', 'configuration', 'message', 'referenceImages']);
 const ALLOWED_CUSTOMER_FIELDS = new Set(['name', 'email', 'phone']);
 const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const PHONE_PATTERN = /^[0-9+().\-\s]+$/;
@@ -85,22 +90,22 @@ function validateCustomer(customer, errors) {
     }
 
     let phone = null;
-    if (customer.phone !== undefined && customer.phone !== null && customer.phone !== '') {
-        if (typeof customer.phone !== 'string') {
-            errors.push(issue('customer.phone', 'INVALID_TYPE', 'Phone must be a string.'));
+    if (customer.phone === undefined || customer.phone === null) {
+        errors.push(issue('customer.phone', 'REQUIRED', 'Phone number is required.'));
+    } else if (typeof customer.phone !== 'string') {
+        errors.push(issue('customer.phone', 'INVALID_TYPE', 'Phone must be a string.'));
+    } else {
+        const trimmedPhone = customer.phone.trim();
+        if (trimmedPhone === '') {
+            errors.push(issue('customer.phone', 'REQUIRED', 'Phone number is required.'));
+        } else if (
+            trimmedPhone.length < PHONE_MIN_LENGTH
+            || trimmedPhone.length > PHONE_MAX_LENGTH
+            || !PHONE_PATTERN.test(trimmedPhone)
+        ) {
+            errors.push(issue('customer.phone', 'INVALID_FORMAT', 'Enter a valid phone number.'));
         } else {
-            const trimmedPhone = customer.phone.trim();
-            if (trimmedPhone !== '') {
-                if (
-                    trimmedPhone.length < PHONE_MIN_LENGTH
-                    || trimmedPhone.length > PHONE_MAX_LENGTH
-                    || !PHONE_PATTERN.test(trimmedPhone)
-                ) {
-                    errors.push(issue('customer.phone', 'INVALID_FORMAT', 'Enter a valid phone number.'));
-                } else {
-                    phone = trimmedPhone;
-                }
-            }
+            phone = trimmedPhone;
         }
     }
 
@@ -109,6 +114,49 @@ function validateCustomer(customer, errors) {
     }
 
     return { name, email, phone };
+}
+
+function validateReferenceImages(value, errors, uploadsDir) {
+    if (value === undefined || value === null) {
+        return [];
+    }
+    if (!Array.isArray(value)) {
+        errors.push(issue('referenceImages', 'INVALID_TYPE', 'Reference images must be a list of upload paths.'));
+        return [];
+    }
+    if (value.length > CUSTOM_BUILD_MAX_IMAGES) {
+        errors.push(issue(
+            'referenceImages',
+            'TOO_MANY_SELECTIONS',
+            `Choose at most ${CUSTOM_BUILD_MAX_IMAGES} reference images.`,
+        ));
+        return [];
+    }
+    const seen = new Set();
+    const paths = [];
+    value.forEach((item, index) => {
+        const field = `referenceImages[${index}]`;
+        if (typeof item !== 'string' || item.trim() === '') {
+            errors.push(issue(field, 'INVALID_TYPE', 'Each reference image must be an upload path.'));
+            return;
+        }
+        const normalized = sanitizeCustomBuildUploadPaths([item])[0];
+        if (!normalized) {
+            errors.push(issue(field, 'INVALID_FORMAT', 'Reference image path is not valid.'));
+            return;
+        }
+        if (seen.has(normalized)) {
+            errors.push(issue(field, 'DUPLICATE_OPTION', 'This image was selected more than once.'));
+            return;
+        }
+        if (uploadsDir && !customBuildUploadExists(uploadsDir, normalized)) {
+            errors.push(issue(field, 'INVALID_FORMAT', 'Reference image is not available.'));
+            return;
+        }
+        seen.add(normalized);
+        paths.push(normalized);
+    });
+    return paths;
 }
 
 function validateMessage(message, errors) {
@@ -131,7 +179,14 @@ function validateMessage(message, errors) {
     return trimmed || null;
 }
 
-function createInquiryService({ CustomBuildInquiry, validationService, createId = defaultId }) {
+function createInquiryService({
+    CustomBuildInquiry,
+    validationService,
+    createId = defaultId,
+    uploadsDir = null,
+    notifications,
+}) {
+    const notify = notifications || { async notifyCustomBuild() {} };
     return {
         async createInquiry(payload) {
             if (!isPlainObject(payload)) {
@@ -153,6 +208,7 @@ function createInquiryService({ CustomBuildInquiry, validationService, createId 
 
             const customer = validateCustomer(payload.customer, errors);
             const message = validateMessage(payload.message, errors);
+            const referenceImages = validateReferenceImages(payload.referenceImages, errors, uploadsDir);
 
             let configuration = null;
             if (payload.configuration === undefined) {
@@ -167,10 +223,11 @@ function createInquiryService({ CustomBuildInquiry, validationService, createId 
                 throw new ApiError(422, 'VALIDATION_ERROR', 'Custom build inquiry is invalid.', errors);
             }
 
-            const submissionKey = inquirySubmissionKey({ customer, configuration, message });
+            const submissionKey = inquirySubmissionKey({ customer, configuration, message, referenceImages });
             const draftId = extractDraftId(configuration && configuration.notes);
             const existing = await CustomBuildInquiry.findOne({ submissionKey });
             if (existing) {
+                await notify.notifyCustomBuild(existing);
                 return toPublicInquiry(existing);
             }
 
@@ -181,14 +238,17 @@ function createInquiryService({ CustomBuildInquiry, validationService, createId 
                     customer,
                     configuration,
                     message,
+                    referenceImages: referenceImages.length ? referenceImages : undefined,
                     draftId,
                     submissionKey,
                 });
+                await notify.notifyCustomBuild(record);
                 return toPublicInquiry(record);
             } catch (error) {
                 if (error && (error.code === 11000 || error.code === 11001)) {
                     const raced = await CustomBuildInquiry.findOne({ submissionKey });
                     if (raced) {
+                        await notify.notifyCustomBuild(raced);
                         return toPublicInquiry(raced);
                     }
                 }

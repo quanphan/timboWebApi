@@ -1,3 +1,4 @@
+const mongoose = require('mongoose');
 const Message = require('../models/Message');
 const { ApiError } = require('../utils/errors');
 const { pageMeta } = require('../utils/http');
@@ -24,7 +25,8 @@ function optionalField(value, max, field, errors) {
     return cleaned;
 }
 
-function createContactService() {
+function createContactService({ notifications } = {}) {
+    const notify = notifications || { async notifyContact() {} };
     return {
         async create(body) {
             if (!body || typeof body !== 'object' || Array.isArray(body)) {
@@ -68,7 +70,19 @@ function createContactService() {
                 productRef,
                 draftId,
             });
+            await notify.notifyContact(saved);
             return { id: String(saved._id), received: true };
+        },
+
+        async getById(id) {
+            if (!mongoose.isValidObjectId(id)) {
+                throw new ApiError(404, 'NOT_FOUND', 'Message was not found.');
+            }
+            const message = await Message.findById(id);
+            if (!message) {
+                throw new ApiError(404, 'NOT_FOUND', 'Message was not found.');
+            }
+            return publicMessage(message);
         },
 
         async list(query) {

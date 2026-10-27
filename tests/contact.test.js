@@ -73,6 +73,47 @@ test('POST /api/contact rejects invalid email and unknown inquiry types', async 
     assert.deepEqual(fields, ['email', 'inquiryType']);
 });
 
+test('GET /api/admin/messages/:id returns one message only to an admin', async () => {
+    const created = await request(context.baseUrl, '/api/contact', {
+        method: 'POST',
+        body: {
+            name: 'Detail Visitor',
+            email: 'detail@example.com',
+            message: 'Please show this in admin.',
+        },
+    });
+    const id = created.body.data.id;
+    const anonymous = await request(context.baseUrl, `/api/admin/messages/${id}`);
+    assert.equal(anonymous.status, 401);
+
+    await User.create({
+        email: 'contact-customer@example.com',
+        name: 'Contact Customer',
+        password: await bcrypt.hash('contact-customer-pass', 10),
+        role: 'customer',
+        admin: '0',
+    });
+    const customerLogin = await request(context.baseUrl, '/api/auth/login', {
+        method: 'POST',
+        body: { email: 'contact-customer@example.com', password: 'contact-customer-pass' },
+    });
+    const customer = await request(context.baseUrl, `/api/admin/messages/${id}`, {
+        token: customerLogin.body.data.accessToken,
+    });
+    assert.equal(customer.status, 403);
+
+    const admin = await request(context.baseUrl, `/api/admin/messages/${id}`, { token: adminToken });
+    assert.equal(admin.status, 200);
+    assert.equal(admin.body.data.id, id);
+    assert.equal(admin.body.data.message, 'Please show this in admin.');
+    assert.equal(admin.body.data.email, 'detail@example.com');
+
+    const missing = await request(context.baseUrl, '/api/admin/messages/507f1f77bcf86cd799439011', {
+        token: adminToken,
+    });
+    assert.equal(missing.status, 404);
+});
+
 test('GET /api/admin/messages returns stored inquiry metadata', async () => {
     const listed = await request(context.baseUrl, '/api/admin/messages', { token: adminToken });
     assert.equal(listed.status, 200);

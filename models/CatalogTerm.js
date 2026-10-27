@@ -3,6 +3,7 @@ const mongoose = require('mongoose');
 const localeSchema = new mongoose.Schema({
     name: { type: String, default: null, maxlength: 120 },
     description: { type: String, default: null, maxlength: 500 },
+    shortDescription: { type: String, default: null, maxlength: 200 },
 }, { _id: false });
 
 const catalogTermSchema = new mongoose.Schema({
@@ -22,6 +23,10 @@ const catalogTermSchema = new mongoose.Schema({
     isActive: { type: Boolean, default: true },
     sortOrder: { type: Number, default: 0 },
     parentId: { type: mongoose.Schema.Types.ObjectId, ref: 'CatalogTerm', default: null },
+    shortDescription: { type: String, default: null, maxlength: 200 },
+    minPrice: { type: Number, default: null, min: 0 },
+    maxPrice: { type: Number, default: null, min: 0 },
+    currency: { type: String, default: null, maxlength: 8 },
 }, {
     collection: 'catalog_terms',
     timestamps: true,

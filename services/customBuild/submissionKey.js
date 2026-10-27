@@ -20,6 +20,7 @@ function inquirySubmissionKey(inquiry) {
         customer: inquiry.customer,
         configuration: inquiry.configuration,
         message: inquiry.message ?? null,
+        referenceImages: inquiry.referenceImages || [],
     });
     return createHash('sha256').update(JSON.stringify(payload)).digest('hex');
 }

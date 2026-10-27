@@ -29,6 +29,7 @@ function presentLocale(value, fallbackName, fallbackDescription) {
     return {
         name: value && value.name ? value.name : fallbackName,
         description: value && value.description ? value.description : (fallbackDescription || null),
+        shortDescription: value && value.shortDescription ? value.shortDescription : null,
     };
 }
 
@@ -39,6 +40,10 @@ function presentTerm(term) {
         name: term.name,
         slug: term.slug,
         description: term.description || null,
+        shortDescription: term.shortDescription || null,
+        minPrice: term.minPrice == null ? null : term.minPrice,
+        maxPrice: term.maxPrice == null ? null : term.maxPrice,
+        currency: term.currency || null,
         translations: {
             vi: presentLocale(term.translations && term.translations.vi, term.name, term.description),
             en: presentLocale(term.translations && term.translations.en, term.name, term.description),
@@ -92,6 +97,9 @@ function readLocale(value, field) {
     }
     const name = value.name === undefined ? null : cleanString(value.name);
     const description = value.description === undefined ? null : cleanString(value.description);
+    const shortDescription = value.shortDescription === undefined
+        ? undefined
+        : cleanString(value.shortDescription);
     if (name && name.length > 120) {
         throw new ApiError(422, 'VALIDATION_ERROR', 'Catalog item is invalid.', [{
             field: `${field}.name`,
@@ -106,10 +114,49 @@ function readLocale(value, field) {
             message: 'Translated description is too long.',
         }]);
     }
-    return { name: name || null, description: description || null };
+    if (shortDescription && shortDescription.length > 200) {
+        throw new ApiError(422, 'VALIDATION_ERROR', 'Catalog item is invalid.', [{
+            field: `${field}.shortDescription`,
+            code: 'INVALID',
+            message: 'Translated short description is too long.',
+        }]);
+    }
+    const locale = { name: name || null, description: description || null };
+    if (shortDescription !== undefined) {
+        locale.shortDescription = shortDescription || null;
+    }
+    return locale;
 }
 
-function readInput(body, { partial = false } = {}) {
+function readOptionalPrice(value, field) {
+    if (value === undefined) {
+        return undefined;
+    }
+    if (value === null || value === '') {
+        return null;
+    }
+    const amount = Number(value);
+    if (!Number.isFinite(amount) || amount < 0) {
+        throw new ApiError(422, 'VALIDATION_ERROR', 'Catalog item is invalid.', [{
+            field,
+            code: 'INVALID',
+            message: 'Price must be a non-negative number.',
+        }]);
+    }
+    return amount;
+}
+
+function assertPriceRange(minPrice, maxPrice) {
+    if (minPrice != null && maxPrice != null && minPrice > maxPrice) {
+        throw new ApiError(422, 'VALIDATION_ERROR', 'Catalog item is invalid.', [{
+            field: 'minPrice',
+            code: 'INVALID',
+            message: 'Minimum price cannot be greater than maximum price.',
+        }]);
+    }
+}
+
+function readInput(body, { partial = false, kind = null } = {}) {
     if (!body || typeof body !== 'object' || Array.isArray(body)) {
         throw new ApiError(400, 'BAD_REQUEST', 'Request body must be a JSON object.');
     }
@@ -165,6 +212,44 @@ function readInput(body, { partial = false } = {}) {
     }
     if (body.parentId !== undefined) {
         updates.parentId = body.parentId || null;
+    }
+    if (body.shortDescription !== undefined) {
+        const shortDescription = cleanString(body.shortDescription);
+        if (shortDescription.length > 200) {
+            throw new ApiError(422, 'VALIDATION_ERROR', 'Catalog item is invalid.', [{
+                field: 'shortDescription',
+                code: 'INVALID',
+                message: 'Short description must be 200 characters or fewer.',
+            }]);
+        }
+        updates.shortDescription = shortDescription || null;
+    }
+    if (kind === 'series') {
+        if (!partial || body.minPrice !== undefined) {
+            const minPrice = readOptionalPrice(body.minPrice, 'minPrice');
+            if (minPrice !== undefined) updates.minPrice = minPrice;
+        }
+        if (!partial || body.maxPrice !== undefined) {
+            const maxPrice = readOptionalPrice(body.maxPrice, 'maxPrice');
+            if (maxPrice !== undefined) updates.maxPrice = maxPrice;
+        }
+        if (!partial || body.currency !== undefined) {
+            if (body.currency === undefined && !partial) {
+                updates.currency = 'USD';
+            } else if (body.currency === null || body.currency === '') {
+                updates.currency = null;
+            } else {
+                const currency = cleanString(body.currency).toUpperCase();
+                if (!/^[A-Z]{3}$/.test(currency)) {
+                    throw new ApiError(422, 'VALIDATION_ERROR', 'Catalog item is invalid.', [{
+                        field: 'currency',
+                        code: 'INVALID',
+                        message: 'Currency must be a 3-letter code.',
+                    }]);
+                }
+                updates.currency = currency;
+            }
+        }
     }
     if (body.translations !== undefined) {
         if (!body.translations || typeof body.translations !== 'object' || Array.isArray(body.translations)) {
@@ -248,9 +333,10 @@ function createCatalogTermService() {
 
         async create(routeKind, body) {
             const kind = kindFromRoute(routeKind);
-            const input = readInput(body);
+            const input = readInput(body, { kind });
             await assertUniqueSlug(kind, input.slug);
             input.parentId = await assertParent(input.parentId);
+            assertPriceRange(input.minPrice, input.maxPrice);
             const term = await CatalogTerm.create({ ...input, kind });
             return presentTerm(term);
         },
@@ -261,7 +347,7 @@ function createCatalogTermService() {
             if (!term) {
                 throw new ApiError(404, 'NOT_FOUND', 'Catalog item was not found.');
             }
-            const input = readInput(body, { partial: true });
+            const input = readInput(body, { partial: true, kind });
             if (input.slug) {
                 await assertUniqueSlug(kind, input.slug, term._id);
             }
@@ -269,12 +355,21 @@ function createCatalogTermService() {
                 input.parentId = await assertParent(input.parentId, term._id);
             }
             if (input.translations) {
+                const current = term.translations ? term.translations.toObject() : {};
                 term.translations = {
-                    ...(term.translations ? term.translations.toObject() : {}),
-                    ...input.translations,
+                    ...current,
+                    ...(input.translations.vi
+                        ? { vi: { ...(current.vi || {}), ...input.translations.vi } }
+                        : {}),
+                    ...(input.translations.en
+                        ? { en: { ...(current.en || {}), ...input.translations.en } }
+                        : {}),
                 };
                 delete input.translations;
             }
+            const nextMin = input.minPrice !== undefined ? input.minPrice : term.minPrice;
+            const nextMax = input.maxPrice !== undefined ? input.maxPrice : term.maxPrice;
+            assertPriceRange(nextMin, nextMax);
             Object.assign(term, input);
             await term.save();
             return presentTerm(term);

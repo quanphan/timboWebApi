@@ -1,16 +1,21 @@
 const { asyncHandler } = require('../middleware/errorHandler');
+const { ApiError } = require('../utils/errors');
 const { sendData } = require('../utils/http');
 const { createInquiryService } = require('../services/customBuild/inquiryService');
+const { createNotificationService } = require('../services/email/notificationService');
 const { createOptionsService } = require('../services/customBuild/optionsService');
 const { createValidationService } = require('../services/customBuild/validation');
 const { createCustomBuildAdminService } = require('../services/customBuild/adminService');
+const { deleteCustomBuildUploadFile } = require('../services/uploadService');
 
-function createCustomBuildController() {
+function createCustomBuildController(config = {}) {
     const optionsService = createOptionsService(require('../models/CustomBuildOption'));
     const validationService = createValidationService(optionsService);
     const inquiryService = createInquiryService({
         CustomBuildInquiry: require('../models/CustomBuildInquiry'),
         validationService,
+        uploadsDir: config.uploadsDir || null,
+        notifications: createNotificationService(config),
     });
     const adminService = createCustomBuildAdminService();
 
@@ -24,6 +29,15 @@ function createCustomBuildController() {
         validate: asyncHandler(async (req, res) => {
             const configuration = await validationService.validateConfiguration(req.body);
             sendData(res, { valid: true, configuration });
+        }),
+        upload: asyncHandler(async (req, res) => {
+            if (!req.uploadResult) {
+                throw new ApiError(400, 'BAD_REQUEST', 'Choose an image file.');
+            }
+            sendData(res, req.uploadResult, 201);
+        }),
+        deleteUpload: asyncHandler(async (req, res) => {
+            sendData(res, deleteCustomBuildUploadFile(config, req.query.path));
         }),
         createInquiry: asyncHandler(async (req, res) => {
             sendData(res, await inquiryService.createInquiry(req.body), 201);

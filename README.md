@@ -49,6 +49,22 @@ API local: `http://127.0.0.1:5050`
 
 Đăng nhập admin dùng `POST /api/auth/login` với `username` hoặc `email` và `password`. `superadmin` quản lý admin, role, permissions và khóa tài khoản. Admin có quyền đọc user và xử lý inquiry. Customer không gọi được API quản trị. Tài khoản `locked` không đăng nhập và không dùng token cũ.
 
+## Email thông báo
+
+Backend gửi email cho quản trị viên sau khi một contact message hoặc custom build inquiry đã được lưu vào MongoDB. Dự án không có API tạo đơn hàng, nên không gửi email đơn hàng. Giỏ hàng không được xem là đơn hàng.
+
+Nhà cung cấp là Resend. Đặt các biến sau trong secret store, không ghi vào git:
+
+- `RESEND_API_KEY`: API key của Resend.
+- `NOTIFICATION_EMAIL`: hộp thư nhận thông báo.
+- `EMAIL_FROM`: địa chỉ gửi đã được Resend chấp nhận, dạng `Name <mail@domain>`.
+- `PUBLIC_BASE_URL`: tùy chọn. Origin của API, chỉ dùng cho link ảnh tham chiếu. Local: `http://127.0.0.1:5050`. Production: `https://timbowebapi.up.railway.app`.
+- `FRONTEND_BASE_URL`: origin của website để mở trang admin. Local: `http://127.0.0.1:5173`. Production để trống thì dùng `https://phanquanguitars.com`.
+
+Thiếu một trong ba biến bắt buộc thì server vẫn nhận form và không gửi email. Lỗi từ Resend cũng không đổi kết quả đã lưu. Gửi lại cùng một inquiry hoặc cùng nội dung contact không gửi thêm email sau lần gửi thành công.
+
+Trong Resend, thêm và xác minh domain của `EMAIL_FROM` trước khi dùng production. Không dùng địa chỉ chưa xác minh. Email chứa đường dẫn admin yêu cầu đăng nhập; không có URL công khai để đọc nội dung inquiry.
+
 ## Kiểm thử
 
 ```bash

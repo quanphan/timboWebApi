@@ -1,4 +1,5 @@
 const { DEMO_CATEGORIES } = require('./demoCatalog');
+const { ensureWizardCatalog } = require('./ensureWizardCatalog');
 
 /**
  * Insert demo categories that are not already stored.
@@ -43,7 +44,8 @@ async function seedDemoOptions(CustomBuildOption = require('../models/CustomBuil
         }
     }
 
-    return { inserted, skipped };
+    const wizard = await ensureWizardCatalog(CustomBuildOption);
+    return { inserted, skipped, wizardInserted: wizard.inserted, wizardUpdated: wizard.updated };
 }
 
 module.exports = { seedDemoOptions };

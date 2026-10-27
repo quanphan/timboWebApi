@@ -4,6 +4,7 @@ const { createAuthController } = require('../controllers/authController');
 const { createCatalogController, createContentController } = require('../controllers/catalogController');
 const { createCatalogAdminController, createPublicCatalogController } = require('../controllers/catalogAdminController');
 const { createCustomBuildController } = require('../controllers/customBuildController');
+const { createWizardSetupController } = require('../controllers/wizardSetupController');
 const { createAuthenticate, requireAdmin, requirePermission } = require('../middleware/authenticate');
 const { requireJson } = require('../middleware/requireJson');
 const { createSensitiveLimiter } = require('../middleware/rateLimit');
@@ -14,12 +15,13 @@ const { createCartService } = require('../services/cartService');
 const { createReviewService } = require('../services/reviewService');
 const { createBrandSettingsController } = require('../controllers/brandSettingsController');
 const { createContactService } = require('../services/contactService');
+const { createNotificationService } = require('../services/email/notificationService');
 const { createBrandSettingsService } = require('../services/brandSettingsService');
 const { createPostService } = require('../services/postService');
 const { createGalleryController } = require('../controllers/galleryController');
 const { createGalleryService } = require('../services/galleryService');
 const { createGalleryUploadMiddleware } = require('../services/galleryUploadService');
-const { createUploadMiddleware } = require('../services/uploadService');
+const { createCustomBuildUploadMiddleware, createUploadMiddleware } = require('../services/uploadService');
 const { createCatalogTermService } = require('../services/catalogTermService');
 const { sendData } = require('../utils/http');
 
@@ -34,10 +36,12 @@ function createApiRouter(config) {
         reviewService: createReviewService(),
     });
     const content = createContentController({
-        contactService: createContactService(),
+        contactService: createContactService({ notifications: createNotificationService(config) }),
         postService: createPostService(),
     });
-    const customBuild = createCustomBuildController();
+    const customBuild = createCustomBuildController(config);
+    const customBuildUpload = createCustomBuildUploadMiddleware(config);
+    const wizardSetup = createWizardSetupController();
     const uploadImage = createUploadMiddleware(config);
     const catalogTerms = createCatalogTermService();
     const catalogAdmin = createCatalogAdminController({
@@ -123,6 +127,7 @@ function createApiRouter(config) {
 
     router.post('/contact', limitSensitive, requireJson, content.createMessage);
     router.get('/admin/messages', authenticate, requireAdmin, content.listMessages);
+    router.get('/admin/messages/:id', authenticate, requireAdmin, content.getMessage);
     router.delete('/admin/messages/:id', authenticate, requireAdmin, content.deleteMessage);
 
     router.get('/posts', content.listPosts);
@@ -142,8 +147,18 @@ function createApiRouter(config) {
     router.patch('/admin/gallery/:id', authenticate, requireAdmin, requireJson, gallery.update);
     router.delete('/admin/gallery/:id', authenticate, requireAdmin, gallery.remove);
 
+    router.get('/admin/custom-build/setup', authenticate, requirePermission('catalog.read'), wizardSetup.list);
+    router.get('/admin/custom-build/setup/:categoryId', authenticate, requirePermission('catalog.read'), wizardSetup.getCategory);
+    router.post('/admin/custom-build/setup/:categoryId/options', authenticate, requirePermission('catalog.write'), requireJson, wizardSetup.createOption);
+    router.patch('/admin/custom-build/setup/:categoryId/reorder', authenticate, requirePermission('catalog.write'), requireJson, wizardSetup.reorderOptions);
+    router.post('/admin/custom-build/setup/:categoryId/options/:optionId/duplicate', authenticate, requirePermission('catalog.write'), wizardSetup.duplicateOption);
+    router.patch('/admin/custom-build/setup/:categoryId/options/:optionId', authenticate, requirePermission('catalog.write'), requireJson, wizardSetup.updateOption);
+    router.delete('/admin/custom-build/setup/:categoryId/options/:optionId', authenticate, requirePermission('catalog.delete'), wizardSetup.deleteOption);
+
     router.get('/custom-build/options', customBuild.listOptions);
     router.get('/custom-build/options/:categoryId', customBuild.getCategory);
+    router.post('/custom-build/uploads', limitSensitive, customBuildUpload, customBuild.upload);
+    router.delete('/custom-build/uploads', limitSensitive, customBuild.deleteUpload);
     router.post('/custom-build/validate', requireJson, customBuild.validate);
     router.post('/custom-build/inquiries', limitSensitive, requireJson, customBuild.createInquiry);
     router.get('/admin/custom-build/inquiries', authenticate, requirePermission('inquiries.read'), customBuild.listInquiries);

@@ -59,6 +59,9 @@ function createContentController({ contactService, postService }) {
             const result = await contactService.list(req.query);
             sendData(res, result.messages, 200, result.meta);
         }),
+        getMessage: asyncHandler(async (req, res) => {
+            sendData(res, await contactService.getById(req.params.id));
+        }),
         deleteMessage: asyncHandler(async (req, res) => {
             sendData(res, await contactService.remove(req.params.id));
         }),

@@ -107,8 +107,14 @@ Requires authentication. Item price is copied from the product.
 
 ## Custom build
 
-- `GET /api/custom-build/options`
+- `GET /api/custom-build/options` public wizard catalog. Options include `code`, translations, `compatibility`, `attributes`, `isDefault`, `defaultForInstrumentTypeIds`, `imagePath`, and `icon`. Inactive options are included so clients can hide them.
 - `GET /api/custom-build/options/:categoryId`
+- `GET /api/admin/custom-build/setup` admin list of wizard categories and options (`catalog.read`)
+- `POST /api/admin/custom-build/setup/:categoryId/options` `{ name, code, translations?, description?, active?, isDefault?, defaultForInstrumentTypeIds?, imagePath?, icon?, sortOrder?, compatibility?, attributes? }` (`catalog.write`). `defaultForInstrumentTypeIds` is unique per instrument type within the category. Compatibility values must match stored option codes or wizard ids.
+- `PATCH /api/admin/custom-build/setup/:categoryId/options/:optionId`
+- `POST /api/admin/custom-build/setup/:categoryId/options/:optionId/duplicate`
+- `PATCH /api/admin/custom-build/setup/:categoryId/reorder` `{ ids }`
+- `DELETE /api/admin/custom-build/setup/:categoryId/options/:optionId` (`catalog.delete`). Returns `409` when the option is the last in its category or is referenced by an inquiry; deactivate it instead.
 - `POST /api/custom-build/validate` `{ selections, notes? }`
 - `POST /api/custom-build/inquiries` `{ customer: { name, email, phone? }, configuration, message? }` returns `201` `{ id, createdAt, status }`
 - `configuration.notes` keeps the draft id (`draftId=`), language, country, and wizard details. Prices are not stored.

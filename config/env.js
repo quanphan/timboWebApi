@@ -13,6 +13,21 @@ const PHANQUAN_GUITARS_ORIGINS = [
     'https://phanquan-guitars.netlify.app',
 ];
 
+const PRODUCTION_FRONTEND_ORIGIN = 'https://phanquanguitars.com';
+
+function normalizePublicBaseUrl(value) {
+    const text = String(value || '').trim().replace(/\/+$/, '');
+    if (!text || /[\r\n\s]/.test(text)) return '';
+    try {
+        const url = new URL(text);
+        if (url.protocol !== 'https:' && url.protocol !== 'http:') return '';
+        if (url.username || url.password || url.search || url.hash) return '';
+        return url.origin;
+    } catch {
+        return '';
+    }
+}
+
 function uniqueOrigins(origins) {
     const seen = new Set();
     const unique = [];
@@ -95,6 +110,12 @@ function getConfig(env = process.env) {
         galleryVideoMaxBytes: Number(env.GALLERY_VIDEO_MAX_BYTES || 50 * 1024 * 1024),
         rateLimitEnabled: nodeEnv !== 'test',
         googleClientId: env.GOOGLE_CLIENT_ID || '',
+        resendApiKey: String(env.RESEND_API_KEY || '').trim(),
+        notificationEmail: String(env.NOTIFICATION_EMAIL || '').trim(),
+        emailFrom: String(env.EMAIL_FROM || '').trim(),
+        publicBaseUrl: normalizePublicBaseUrl(env.PUBLIC_BASE_URL),
+        frontendBaseUrl: normalizePublicBaseUrl(env.FRONTEND_BASE_URL)
+            || (nodeEnv === 'production' ? PRODUCTION_FRONTEND_ORIGIN : ''),
     };
 }
 

@@ -249,6 +249,57 @@ test('productType and specs persist in MongoDB and survive GET after save', asyn
     assert.equal(invalid.status, 422);
 });
 
+test('series stores short description and price range without dropping existing records', async () => {
+    const created = await request(context.baseUrl, '/api/admin/catalog/series', {
+        method: 'POST',
+        token: adminToken,
+        body: {
+            name: 'Player Line',
+            slug: 'player-line',
+            minPrice: 800,
+            maxPrice: 1500,
+            currency: 'USD',
+            translations: {
+                vi: { name: 'Player Line', description: 'Mo ta day du TIENG VIET', shortDescription: 'Dong dan thuc dung.' },
+                en: { name: 'Player Line', description: 'Full English description', shortDescription: 'A practical playing instrument.' },
+            },
+        },
+    });
+    assert.equal(created.status, 201);
+    assert.equal(created.body.data.minPrice, 800);
+    assert.equal(created.body.data.maxPrice, 1500);
+    assert.equal(created.body.data.currency, 'USD');
+    assert.equal(created.body.data.translations.vi.shortDescription, 'Dong dan thuc dung.');
+    assert.equal(created.body.data.translations.en.shortDescription, 'A practical playing instrument.');
+    assert.equal(created.body.data.translations.vi.description, 'Mo ta day du TIENG VIET');
+    assert.equal(created.body.data.translations.en.description, 'Full English description');
+
+    const publicList = await request(context.baseUrl, '/api/catalog/series');
+    const published = (publicList.body.data || []).find((item) => item.slug === 'player-line');
+    assert.equal(Boolean(published), true);
+    assert.equal(published.minPrice, 800);
+    assert.equal(published.translations.vi.shortDescription, 'Dong dan thuc dung.');
+    assert.equal(published.translations.en.shortDescription, 'A practical playing instrument.');
+
+    const inverted = await request(context.baseUrl, `/api/admin/catalog/series/${created.body.data.id}`, {
+        method: 'PATCH',
+        token: adminToken,
+        body: { minPrice: 2000, maxPrice: 1000 },
+    });
+    assert.equal(inverted.status, 422);
+
+    const minOnly = await request(context.baseUrl, `/api/admin/catalog/series/${created.body.data.id}`, {
+        method: 'PATCH',
+        token: adminToken,
+        body: { minPrice: 900, maxPrice: null },
+    });
+    assert.equal(minOnly.status, 200);
+    assert.equal(minOnly.body.data.minPrice, 900);
+    assert.equal(minOnly.body.data.maxPrice, null);
+    assert.equal(minOnly.body.data.translations.en.shortDescription, 'A practical playing instrument.');
+    assert.equal(minOnly.body.data.translations.vi.shortDescription, 'Dong dan thuc dung.');
+});
+
 test('uploads accept a real image, reject a fake image, and keep the stored path', async () => {
     const anonymous = await upload('', pngBytes, 'image/png', 'a.png', 'guitars');
     const customer = await upload(customerToken, pngBytes, 'image/png', '../secret.png', 'categories');

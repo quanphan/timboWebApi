@@ -68,6 +68,23 @@ describe('production config', () => {
         assert.deepEqual(config.warnings, []);
     });
 
+    it('uses the PhanQuan site for admin email links in production', () => {
+        const config = getConfig({ ...productionSecrets });
+        assert.equal(config.frontendBaseUrl, 'https://phanquanguitars.com');
+        assert.equal(config.publicBaseUrl, '');
+    });
+
+    it('keeps explicit frontend and API origins', () => {
+        const config = getConfig({
+            ...productionSecrets,
+            NODE_ENV: 'development',
+            FRONTEND_BASE_URL: 'http://127.0.0.1:5173',
+            PUBLIC_BASE_URL: 'http://127.0.0.1:5050',
+        });
+        assert.equal(config.frontendBaseUrl, 'http://127.0.0.1:5173');
+        assert.equal(config.publicBaseUrl, 'http://127.0.0.1:5050');
+    });
+
     it('keeps an explicit TRUST_PROXY=false', () => {
         const config = getConfig({
             ...productionSecrets,

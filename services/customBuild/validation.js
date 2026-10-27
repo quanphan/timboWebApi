@@ -1,4 +1,5 @@
 const { ApiError } = require('../../utils/errors');
+const { validateSelectionDependencies } = require('./compatibility');
 const { isCalculatedValueField } = require('./fields');
 const { isPlainObject } = require('./objects');
 
@@ -49,7 +50,7 @@ function validateSingleSelection(category, value, errors, selectionField) {
         errors.push(issue(selectionField, 'UNKNOWN_OPTION', 'Selected option does not exist in this category.'));
         return undefined;
     }
-    if (!option.active) {
+    if (option.active === false) {
         errors.push(issue(selectionField, 'INACTIVE_OPTION', 'Selected option is not available.'));
         return undefined;
     }
@@ -91,7 +92,7 @@ function validateMultipleSelection(category, value, errors, selectionField) {
             errors.push(issue(itemField, 'UNKNOWN_OPTION', 'Selected option does not exist in this category.'));
             return;
         }
-        if (!option.active) {
+        if (option.active === false) {
             errors.push(issue(itemField, 'INACTIVE_OPTION', 'Selected option is not available.'));
             return;
         }
@@ -189,6 +190,10 @@ function evaluateConfiguration(payload, catalog, prefix = '') {
         }
     }
 
+    if (errors.length === 0) {
+        errors.push(...validateSelectionDependencies(normalizedSelections, catalog));
+    }
+
     if (errors.length > 0) {
         return { errors, configuration: null };
     }
@@ -205,7 +210,7 @@ function evaluateConfiguration(payload, catalog, prefix = '') {
 function createValidationService(optionsService) {
     return {
         async inspectConfiguration(payload, prefix = '') {
-            const catalog = await optionsService.listOptions();
+            const catalog = await optionsService.listCatalog();
             return evaluateConfiguration(payload, catalog, prefix);
         },
 

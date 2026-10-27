@@ -25,6 +25,7 @@ function presentInquiry(doc) {
             notes: doc.configuration.notes || null,
         },
         message: doc.message || null,
+        referenceImages: Array.isArray(doc.referenceImages) ? doc.referenceImages : [],
         draftId: doc.draftId || null,
     };
 }

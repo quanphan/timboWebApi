@@ -1,10 +1,27 @@
 const mongoose = require('mongoose');
 
+const translationSchema = new mongoose.Schema({
+    name: { type: String, default: '' },
+    description: { type: String, default: '' },
+}, { _id: false });
+
 const optionSchema = new mongoose.Schema({
     id: { type: String, required: true },
     name: { type: String, required: true },
     description: { type: String, default: null },
     active: { type: Boolean, required: true },
+    code: { type: String, default: '' },
+    imagePath: { type: String, default: '' },
+    icon: { type: String, default: '' },
+    isDefault: { type: Boolean, default: false },
+    defaultForInstrumentTypeIds: { type: [String], default: undefined },
+    sortOrder: { type: Number, default: 0 },
+    translations: {
+        vi: { type: translationSchema, default: undefined },
+        en: { type: translationSchema, default: undefined },
+    },
+    compatibility: { type: mongoose.Schema.Types.Mixed, default: undefined },
+    attributes: { type: mongoose.Schema.Types.Mixed, default: undefined },
     metadata: { type: mongoose.Schema.Types.Mixed },
 }, { _id: false });
 

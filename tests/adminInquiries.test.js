@@ -62,7 +62,7 @@ async function submit(name, email, message) {
     const response = await request(context.baseUrl, '/api/custom-build/inquiries', {
         method: 'POST',
         body: {
-            customer: { name, email },
+            customer: { name, email, phone: '+84 90 111 2222' },
             configuration: {
                 selections,
                 notes: `draftId=draft-${email.replace('@', '-')}\nlanguage=vi\ncountry=Vietnam`,
@@ -283,7 +283,7 @@ test('admins can filter, search, update status, and delete with an audit record'
 
 test('an identical public submit still returns the original inquiry', async () => {
     const body = {
-        customer: { name: 'Retry Admin', email: 'retry.admin@example.com' },
+        customer: { name: 'Retry Admin', email: 'retry.admin@example.com', phone: '+84 90 111 2222' },
         configuration: {
             selections,
             notes: 'draftId=retry-admin-draft-123456\nlanguage=en\ncountry=Vietnam',

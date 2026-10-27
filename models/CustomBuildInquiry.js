@@ -24,6 +24,16 @@ const customBuildInquirySchema = new mongoose.Schema({
         required: true,
     },
     message: { type: String, default: null, maxlength: 2000 },
+    referenceImages: {
+        type: [String],
+        default: undefined,
+        validate: {
+            validator(value) {
+                return !value || value.length <= 5;
+            },
+            message: 'At most 5 reference images are allowed.',
+        },
+    },
     draftId: { type: String, default: null, maxlength: 80 },
     submissionKey: { type: String, required: true, unique: true, sparse: true },
 }, {
