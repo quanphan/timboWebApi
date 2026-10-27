@@ -20,6 +20,8 @@ const { createBrandSettingsService } = require('../services/brandSettingsService
 const { createPostService } = require('../services/postService');
 const { createGalleryController } = require('../controllers/galleryController');
 const { createGalleryService } = require('../services/galleryService');
+const { createPageContentController } = require('../controllers/pageContentController');
+const { createPageContentService } = require('../services/pageContentService');
 const { createGalleryUploadMiddleware } = require('../services/galleryUploadService');
 const { createCustomBuildUploadMiddleware, createUploadMiddleware } = require('../services/uploadService');
 const { createCatalogTermService } = require('../services/catalogTermService');
@@ -52,6 +54,7 @@ function createApiRouter(config) {
     const brandSettings = createBrandSettingsController(createBrandSettingsService());
     const gallery = createGalleryController(createGalleryService(config));
     const galleryUpload = createGalleryUploadMiddleware(config);
+    const pageContent = createPageContentController(createPageContentService(config));
 
     router.get('/health', (req, res) => {
         const ready = mongoose.connection.readyState === 1;
@@ -124,6 +127,15 @@ function createApiRouter(config) {
     router.get('/brand-settings/public', brandSettings.getPublic);
     router.get('/brand-settings/admin', authenticate, requireAdmin, brandSettings.getAdmin);
     router.put('/brand-settings/admin', authenticate, requireAdmin, requireJson, brandSettings.updateAdmin);
+
+    router.get('/pages/:pageKey', pageContent.getPublic);
+    router.get('/admin/page-content/media/orphans', authenticate, requireAdmin, pageContent.listOrphans);
+    router.post('/admin/page-content/media/orphans/delete', authenticate, requireAdmin, requirePermission('uploads.write'), requireJson, pageContent.deleteOrphans);
+    router.get('/admin/page-content/:pageKey', authenticate, requireAdmin, pageContent.getAdmin);
+    router.get('/admin/page-content/:pageKey/preview', authenticate, requireAdmin, pageContent.preview);
+    router.put('/admin/page-content/:pageKey/draft', authenticate, requireAdmin, requireJson, pageContent.saveDraft);
+    router.post('/admin/page-content/:pageKey/publish', authenticate, requireAdmin, requireJson, pageContent.publish);
+    router.post('/admin/page-content/:pageKey/revert', authenticate, requireAdmin, requireJson, pageContent.revert);
 
     router.post('/contact', limitSensitive, requireJson, content.createMessage);
     router.get('/admin/messages', authenticate, requireAdmin, content.listMessages);

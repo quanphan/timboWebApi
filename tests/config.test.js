@@ -1,6 +1,8 @@
 const assert = require('node:assert/strict');
+const path = require('path');
 const { describe, it } = require('node:test');
 const { describeSecret, getConfig } = require('../config/env');
+const { pagesDir, publicPageImagePath } = require('../utils/pageImagePaths');
 
 const productionSecrets = {
     NODE_ENV: 'production',
@@ -93,6 +95,19 @@ describe('production config', () => {
         });
         assert.equal(config.frontendBaseUrl, 'http://127.0.0.1:5173');
         assert.equal(config.publicBaseUrl, 'http://127.0.0.1:5050');
+    });
+
+    it('resolves UPLOADS_DIR so page images stay under /uploads/pages', () => {
+        const config = getConfig({
+            ...productionSecrets,
+            UPLOADS_DIR: '/data/uploads',
+        });
+        assert.equal(config.uploadsDir, path.resolve('/data/uploads'));
+        assert.equal(pagesDir(config.uploadsDir), path.resolve('/data/uploads/pages'));
+        assert.equal(
+            publicPageImagePath('aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.png'),
+            '/uploads/pages/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.png',
+        );
     });
 
     it('keeps an explicit TRUST_PROXY=false', () => {

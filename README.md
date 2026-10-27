@@ -35,7 +35,16 @@ npm run dev
 
 Seed chỉ thêm category chưa có và không ghi đè category đã sửa. Server thoát nếu không kết nối được MongoDB. Request inquiry không ghi file JSON thay thế.
 
-Ảnh upload nằm trong `uploads/`. Gallery media nằm trong `uploads/gallery/images` và `uploads/gallery/videos` (hoặc `GALLERY_UPLOAD_DIR`). Khi deploy, gắn persistent volume cho `UPLOADS_DIR` hoặc `GALLERY_UPLOAD_DIR`, vì file không nằm trong MongoDB. Không có cấu hình Railway volume trong repo này.
+Ảnh upload nằm trong `UPLOADS_DIR` (mặc định `<api-root>/uploads`) và được phục vụ tại `/uploads`. Ảnh Page Content nằm cụ thể trong `UPLOADS_DIR/pages` và URL công khai là `/uploads/pages/<32-hex>.<ext>` — cùng chuỗi được lưu trong MongoDB.
+
+Railway không có volume trong repo này. Để file sống sau redeploy:
+
+1. Railway → service TimboWebApi → Volumes → New Volume.
+2. Mount path: `/data/uploads`
+3. Variable: `UPLOADS_DIR=/data/uploads`
+4. Xác nhận trên dashboard (không thể xác nhận từ git): volume attached, mount path đúng, biến đã set, redeploy sau khi gắn volume.
+
+Kiểm tra tay: upload một ảnh About, ghi path `/uploads/pages/...`, redeploy API, mở lại `{API origin}/uploads/pages/...`. Nếu 404 thì volume chưa gắn hoặc `UPLOADS_DIR` chưa trỏ vào mount.
 
 API local: `http://127.0.0.1:5050`
 

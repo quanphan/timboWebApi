@@ -3,6 +3,7 @@ const fs = require('fs');
 const path = require('path');
 const multer = require('multer');
 const { ApiError } = require('../utils/errors');
+const { ensureWritableDirectory } = require('../utils/pageImagePaths');
 
 const ALLOWED_TYPES = {
     'image/jpeg': '.jpg',
@@ -31,23 +32,30 @@ function detectImage(buffer) {
 
 function uploadScope(req) {
     const scope = req.query.scope === undefined ? '' : String(req.query.scope);
-    if (scope !== '' && scope !== 'guitars' && scope !== 'categories') {
+    if (scope !== '' && scope !== 'guitars' && scope !== 'categories' && scope !== 'pages') {
         return null;
     }
     return scope;
 }
 
+function storageUnavailable() {
+    return new ApiError(503, 'DATA_UNAVAILABLE', 'The upload directory is not available.');
+}
+
 function createUploadMiddleware(config) {
-    fs.mkdirSync(config.uploadsDir, { recursive: true });
     const storage = multer.diskStorage({
         destination(req, file, callback) {
             const scope = uploadScope(req);
             if (scope === null) {
-                callback(new ApiError(400, 'BAD_REQUEST', 'Upload scope must be guitars or categories.'));
+                callback(new ApiError(400, 'BAD_REQUEST', 'Upload scope must be guitars, categories, or pages.'));
                 return;
             }
             const destination = scope ? path.join(config.uploadsDir, scope) : config.uploadsDir;
-            fs.mkdirSync(destination, { recursive: true });
+            const ready = ensureWritableDirectory(destination);
+            if (!ready.ok) {
+                callback(storageUnavailable());
+                return;
+            }
             callback(null, destination);
         },
         filename(req, file, callback) {
@@ -73,7 +81,7 @@ function createUploadMiddleware(config) {
 
     return function uploadSingle(req, res, next) {
         if (uploadScope(req) === null) {
-            next(new ApiError(400, 'BAD_REQUEST', 'Upload scope must be guitars or categories.'));
+            next(new ApiError(400, 'BAD_REQUEST', 'Upload scope must be guitars, categories, or pages.'));
             return;
         }
         upload.single('file')(req, res, (error) => {
