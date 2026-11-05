@@ -32,7 +32,7 @@ function detectImage(buffer) {
 
 function uploadScope(req) {
     const scope = req.query.scope === undefined ? '' : String(req.query.scope);
-    if (scope !== '' && scope !== 'guitars' && scope !== 'categories' && scope !== 'pages') {
+    if (scope !== '' && scope !== 'guitars' && scope !== 'categories' && scope !== 'pages' && scope !== 'services') {
         return null;
     }
     return scope;
@@ -47,7 +47,7 @@ function createUploadMiddleware(config) {
         destination(req, file, callback) {
             const scope = uploadScope(req);
             if (scope === null) {
-                callback(new ApiError(400, 'BAD_REQUEST', 'Upload scope must be guitars, categories, or pages.'));
+                callback(new ApiError(400, 'BAD_REQUEST', 'Upload scope must be guitars, categories, pages, or services.'));
                 return;
             }
             const destination = scope ? path.join(config.uploadsDir, scope) : config.uploadsDir;
@@ -81,7 +81,7 @@ function createUploadMiddleware(config) {
 
     return function uploadSingle(req, res, next) {
         if (uploadScope(req) === null) {
-            next(new ApiError(400, 'BAD_REQUEST', 'Upload scope must be guitars, categories, or pages.'));
+            next(new ApiError(400, 'BAD_REQUEST', 'Upload scope must be guitars, categories, pages, or services.'));
             return;
         }
         upload.single('file')(req, res, (error) => {

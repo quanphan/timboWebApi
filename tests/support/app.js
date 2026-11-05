@@ -14,7 +14,7 @@ function testConfig(uploadsDir) {
         jwtSecret: 'test-jwt-secret-value',
         refreshSecret: 'test-refresh-secret-value',
         accessTtl: '15m',
-        refreshTtlMs: 7 * 24 * 60 * 60 * 1000,
+        refreshTtlMs: 24 * 60 * 60 * 1000,
         corsOrigins: ['http://localhost:5173'],
         trustProxy: false,
         jsonBodyLimit: '100kb',

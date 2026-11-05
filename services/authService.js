@@ -23,10 +23,12 @@ function assertActive(user) {
     }
 }
 
-async function issueTokens(user, config) {
+async function issueTokens(user, config, options = {}) {
     const accessToken = signAccessToken(user, config);
     const refreshToken = createRefreshToken();
-    const expiresAt = new Date(Date.now() + config.refreshTtlMs);
+    const expiresAt = options.sessionExpiresAt instanceof Date
+        ? options.sessionExpiresAt
+        : new Date(Date.now() + config.refreshTtlMs);
     const nextTokens = (user.refreshTokens || [])
         .filter((item) => item.expiresAt > new Date())
         .slice(-(REFRESH_LIMIT - 1));
@@ -99,7 +101,9 @@ function createAuthService(config) {
                 await user.save();
                 throw new ApiError(403, 'ACCOUNT_LOCKED', 'This account is locked.');
             }
-            const tokens = await issueTokens(user, config);
+            const tokens = await issueTokens(user, config, {
+                sessionExpiresAt: current.expiresAt,
+            });
             return { user: publicUser(user), ...tokens };
         },
 

@@ -80,6 +80,12 @@ describe('production config', () => {
         assert.deepEqual(config.warnings, []);
     });
 
+    it('caps a login session refresh at 24 hours by default', () => {
+        const config = getConfig({ ...productionSecrets });
+        assert.equal(config.refreshTtlMs, 24 * 60 * 60 * 1000);
+        assert.equal(config.accessTtl, '15m');
+    });
+
     it('uses the PhanQuan site for admin email links in production', () => {
         const config = getConfig({ ...productionSecrets });
         assert.equal(config.frontendBaseUrl, 'https://phanquanguitars.com');

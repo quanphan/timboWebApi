@@ -21,7 +21,11 @@ const { createPostService } = require('../services/postService');
 const { createGalleryController } = require('../controllers/galleryController');
 const { createGalleryService } = require('../services/galleryService');
 const { createPageContentController } = require('../controllers/pageContentController');
+const { createServiceOfferController } = require('../controllers/serviceOfferController');
+const { createFooterQuickLinkController } = require('../controllers/footerQuickLinkController');
 const { createPageContentService } = require('../services/pageContentService');
+const { createServiceOfferService } = require('../services/serviceOfferService');
+const { createFooterQuickLinkService } = require('../services/footerQuickLinkService');
 const { createGalleryUploadMiddleware } = require('../services/galleryUploadService');
 const { createCustomBuildUploadMiddleware, createUploadMiddleware } = require('../services/uploadService');
 const { createCatalogTermService } = require('../services/catalogTermService');
@@ -55,6 +59,8 @@ function createApiRouter(config) {
     const gallery = createGalleryController(createGalleryService(config));
     const galleryUpload = createGalleryUploadMiddleware(config);
     const pageContent = createPageContentController(createPageContentService(config));
+    const services = createServiceOfferController(createServiceOfferService());
+    const footerLinks = createFooterQuickLinkController(createFooterQuickLinkService());
 
     router.get('/health', (req, res) => {
         const ready = mongoose.connection.readyState === 1;
@@ -127,6 +133,29 @@ function createApiRouter(config) {
     router.get('/brand-settings/public', brandSettings.getPublic);
     router.get('/brand-settings/admin', authenticate, requireAdmin, brandSettings.getAdmin);
     router.put('/brand-settings/admin', authenticate, requireAdmin, requireJson, brandSettings.updateAdmin);
+
+    router.get('/footer-quick-links', footerLinks.listPublic);
+    router.get('/admin/footer-quick-links', authenticate, requireAdmin, footerLinks.listAdmin);
+    router.post('/admin/footer-quick-links', authenticate, requireAdmin, requireJson, footerLinks.create);
+    router.patch('/admin/footer-quick-links/reorder', authenticate, requireAdmin, requireJson, footerLinks.reorder);
+    router.get('/admin/footer-quick-links/:id', authenticate, requireAdmin, footerLinks.getAdmin);
+    router.patch('/admin/footer-quick-links/:id', authenticate, requireAdmin, requireJson, footerLinks.update);
+    router.delete('/admin/footer-quick-links/:id', authenticate, requireAdmin, footerLinks.remove);
+
+    router.get('/services', services.listPublic);
+    router.get('/services/:slug', services.getPublic);
+    router.get('/admin/services/categories', authenticate, requirePermission('catalog.read'), services.listCategories);
+    router.post('/admin/services/categories', authenticate, requirePermission('catalog.write'), requireJson, services.createCategory);
+    router.patch('/admin/services/categories/reorder', authenticate, requirePermission('catalog.write'), requireJson, services.reorderCategories);
+    router.get('/admin/services/categories/:id', authenticate, requirePermission('catalog.read'), services.getCategory);
+    router.patch('/admin/services/categories/:id', authenticate, requirePermission('catalog.write'), requireJson, services.updateCategory);
+    router.delete('/admin/services/categories/:id', authenticate, requirePermission('catalog.delete'), services.deleteCategory);
+    router.get('/admin/services/items', authenticate, requirePermission('catalog.read'), services.listItems);
+    router.post('/admin/services/items', authenticate, requirePermission('catalog.write'), requireJson, services.createItem);
+    router.patch('/admin/services/items/reorder', authenticate, requirePermission('catalog.write'), requireJson, services.reorderItems);
+    router.get('/admin/services/items/:id', authenticate, requirePermission('catalog.read'), services.getItem);
+    router.patch('/admin/services/items/:id', authenticate, requirePermission('catalog.write'), requireJson, services.updateItem);
+    router.delete('/admin/services/items/:id', authenticate, requirePermission('catalog.delete'), services.deleteItem);
 
     router.get('/pages/:pageKey', pageContent.getPublic);
     router.get('/admin/page-content/media/orphans', authenticate, requireAdmin, pageContent.listOrphans);

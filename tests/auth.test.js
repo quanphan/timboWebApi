@@ -86,6 +86,23 @@ test('login, profile update, and password change keep authorization on the serve
     assert.equal(newLogin.status, 200);
 });
 
+test('refresh keeps the original session expiry instead of extending it', async () => {
+    const registered = await register('session-cap@example.com');
+    const stored = await User.findOne({ email: 'session-cap@example.com' });
+    const sessionEnd = new Date(Date.now() + 2500);
+    stored.refreshTokens[0].expiresAt = sessionEnd;
+    await stored.save();
+
+    const refreshed = await request(context.baseUrl, '/api/auth/refresh', {
+        method: 'POST',
+        body: { refreshToken: registered.refreshToken },
+    });
+    assert.equal(refreshed.status, 200);
+    const next = await User.findOne({ email: 'session-cap@example.com' });
+    assert.equal(next.refreshTokens.length, 1);
+    assert.ok(Math.abs(next.refreshTokens[0].expiresAt.getTime() - sessionEnd.getTime()) < 50);
+});
+
 test('refresh rotates the token and logout revokes it', async () => {
     const registered = await register('refresh@example.com');
     const refreshed = await request(context.baseUrl, '/api/auth/refresh', {

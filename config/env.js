@@ -105,7 +105,7 @@ function getConfig(env = process.env) {
         jwtSecret: jwtSecret || 'test-jwt-secret-value',
         refreshSecret: refreshSecret || 'test-refresh-secret-value',
         accessTtl: env.ACCESS_TOKEN_TTL || '15m',
-        refreshTtlMs: Number(env.REFRESH_TOKEN_TTL_MS || 7 * 24 * 60 * 60 * 1000),
+        refreshTtlMs: Number(env.REFRESH_TOKEN_TTL_MS || 24 * 60 * 60 * 1000),
         corsOrigins: allowedOrigins,
         trustProxy: env.TRUST_PROXY === undefined || env.TRUST_PROXY === ''
             ? Boolean(env.RAILWAY_ENVIRONMENT || env.RAILWAY_PROJECT_ID)
