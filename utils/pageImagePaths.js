@@ -45,6 +45,7 @@ function collectPageImageFilenames(docs) {
                     : [];
                 for (const section of sections) {
                     add(section.image);
+                    add(section.imageSecondary);
                     add(section.videoUrl);
                     for (const item of section.images || []) add(item.path);
                 }

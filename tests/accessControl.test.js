@@ -278,4 +278,119 @@ test('google login verifies identity and does not grant admin access', async () 
     );
 });
 
+test('admin cannot change another account role and cannot reach APIs without permission', async () => {
+    const customer = await User.findOne({ email: 'mai.access@example.com' });
+    const promote = await request(context.baseUrl, `/api/admin/users/${String(customer._id)}/role`, {
+        method: 'PATCH',
+        token: adminToken,
+        body: { role: 'admin', permissions: ['users.read'] },
+    });
+    assert.equal(promote.status, 403);
+    const stored = await User.findById(customer._id);
+    assert.equal(stored.role, 'customer');
+
+    const editor = await request(context.baseUrl, '/api/admin/users/admins', {
+        method: 'POST',
+        token: superToken,
+        body: {
+            name: 'Editor User',
+            email: 'editor-role@example.com',
+            password: 'editor-role-pass',
+            permissions: ['catalog.read', 'pages.read', 'pages.update'],
+        },
+    });
+    assert.equal(editor.status, 201);
+    const editorId = editor.body.data.id;
+    const asEditor = await request(context.baseUrl, `/api/admin/users/${editorId}/role`, {
+        method: 'PATCH',
+        token: superToken,
+        body: { role: 'editor', permissions: ['catalog.read', 'pages.read', 'pages.update', 'pages.publish'] },
+    });
+    assert.equal(asEditor.status, 200);
+    assert.equal(asEditor.body.data.role, 'editor');
+
+    const editorLogin = await request(context.baseUrl, '/api/auth/login', {
+        method: 'POST',
+        body: { email: 'editor-role@example.com', password: 'editor-role-pass' },
+    });
+    const editorToken = editorLogin.body.data.accessToken;
+    const deniedUsers = await request(context.baseUrl, '/api/admin/users', { token: editorToken });
+    const allowedPages = await request(context.baseUrl, '/api/admin/page-content/about', { token: editorToken });
+    const deniedMessages = await request(context.baseUrl, '/api/admin/messages', { token: editorToken });
+    assert.equal(deniedUsers.status, 403);
+    assert.equal(allowedPages.status, 200);
+    assert.equal(deniedMessages.status, 403);
+
+    const custom = await request(context.baseUrl, `/api/admin/users/${editorId}/role`, {
+        method: 'PATCH',
+        token: superToken,
+        body: { role: 'custom', permissions: ['messages.read'] },
+    });
+    assert.equal(custom.status, 200);
+    assert.equal(custom.body.data.role, 'custom');
+    const customLogin = await request(context.baseUrl, '/api/auth/login', {
+        method: 'POST',
+        body: { email: 'editor-role@example.com', password: 'editor-role-pass' },
+    });
+    const customToken = customLogin.body.data.accessToken;
+    const allowedMessages = await request(context.baseUrl, '/api/admin/messages', { token: customToken });
+    const deniedBrand = await request(context.baseUrl, '/api/brand-settings/admin', { token: customToken });
+    const deniedRoleChange = await request(context.baseUrl, `/api/admin/users/${adminId}/role`, {
+        method: 'PATCH',
+        token: customToken,
+        body: { role: 'admin' },
+    });
+    assert.equal(allowedMessages.status, 200);
+    assert.equal(deniedBrand.status, 403);
+    assert.equal(deniedRoleChange.status, 403);
+});
+
+test('superadmin can save an admin permission set and unknown keys return field details', async () => {
+    const created = await request(context.baseUrl, '/api/admin/users/admins', {
+        method: 'POST',
+        token: superToken,
+        body: {
+            name: 'Role Save Admin',
+            email: 'role-save-admin@example.com',
+            password: 'role-save-admin-pass',
+            permissions: ['users.read', 'catalog.read'],
+        },
+    });
+    assert.equal(created.status, 201);
+    const targetId = created.body.data.id;
+
+    const saved = await request(context.baseUrl, `/api/admin/users/${targetId}/role`, {
+        method: 'PATCH',
+        token: superToken,
+        body: {
+            role: 'admin',
+            permissions: ['users.read', 'catalog.read', 'catalog.create', 'catalog.update', 'messages.read'],
+        },
+    });
+    assert.equal(saved.status, 200);
+    assert.equal(saved.body.data.role, 'admin');
+    assert.equal(saved.body.data.permissions.includes('users.read'), true);
+    assert.equal(saved.body.data.permissions.includes('messages.read'), true);
+    assert.equal(saved.body.data.permissions.includes('roles.read'), false);
+
+    const custom = await request(context.baseUrl, `/api/admin/users/${targetId}/role`, {
+        method: 'PATCH',
+        token: superToken,
+        body: { role: 'custom', permissions: ['users.read', 'roles.read'] },
+    });
+    assert.equal(custom.status, 200);
+    assert.equal(custom.body.data.role, 'custom');
+    assert.equal(custom.body.data.permissions.includes('roles.read'), true);
+
+    const invalid = await request(context.baseUrl, `/api/admin/users/${targetId}/role`, {
+        method: 'PATCH',
+        token: superToken,
+        body: { role: 'custom', permissions: ['users.read', 'not.a.permission'] },
+    });
+    assert.equal(invalid.status, 422);
+    assert.equal(invalid.body.error.code, 'VALIDATION_ERROR');
+    assert.equal(invalid.body.error.details[0].field, 'permissions');
+    assert.match(invalid.body.error.details[0].message, /not\.a\.permission/);
+});
+
 });

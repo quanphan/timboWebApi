@@ -30,7 +30,7 @@ const userSchema = new mongoose.Schema({
     status: { type: String, enum: ['active', 'locked'], default: 'active' },
     userType: String,
     admin: mongoose.Schema.Types.Mixed,
-    role: { type: String, enum: ['customer', 'admin', 'superadmin'] },
+    role: { type: String, enum: ['customer', 'admin', 'superadmin', 'editor', 'custom'] },
     permissions: { type: [String], default: undefined },
     refreshTokens: { type: [refreshTokenSchema], default: [] },
     createdAt: { type: Date, default: Date.now },

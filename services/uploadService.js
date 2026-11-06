@@ -12,7 +12,15 @@ const ALLOWED_TYPES = {
     'image/gif': '.gif',
 };
 
+function isHeicBuffer(buffer) {
+    if (!buffer || buffer.length < 12) return false;
+    if (buffer.subarray(4, 8).toString('ascii') !== 'ftyp') return false;
+    const brand = buffer.subarray(8, 12).toString('ascii').toLowerCase();
+    return ['heic', 'heif', 'mif1', 'msf1', 'heix', 'hevc'].includes(brand);
+}
+
 function detectImage(buffer) {
+    if (isHeicBuffer(buffer)) return null;
     if (buffer.length >= 3 && buffer[0] === 0xff && buffer[1] === 0xd8 && buffer[2] === 0xff) {
         return { mime: 'image/jpeg', ext: '.jpg' };
     }

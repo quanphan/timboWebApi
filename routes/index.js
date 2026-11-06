@@ -93,12 +93,12 @@ function createApiRouter(config) {
     router.put('/account/password', authenticate, requireJson, auth.changePassword);
 
     router.get('/admin/users', authenticate, requirePermission('users.read'), auth.listUsers);
-    router.post('/admin/users/admins', authenticate, requirePermission('users.create_admin'), requireJson, auth.createAdmin);
+    router.post('/admin/users/admins', authenticate, requirePermission('users.create'), requireJson, auth.createAdmin);
     router.get('/admin/users/:id', authenticate, requirePermission('users.read'), auth.getUser);
-    router.patch('/admin/users/:id/role', authenticate, requirePermission('users.update_role'), requireJson, auth.updateUserRole);
-    router.patch('/admin/users/:id/status', authenticate, requirePermission('users.update_status'), requireJson, auth.updateUserStatus);
+    router.patch('/admin/users/:id/role', authenticate, requirePermission('roles.update'), requireJson, auth.updateUserRole);
+    router.patch('/admin/users/:id/status', authenticate, requirePermission('users.update'), requireJson, auth.updateUserStatus);
     router.put('/admin/users/:id', authenticate, requireAdmin, requireJson, auth.updateUser);
-    router.delete('/admin/users/:id', authenticate, requirePermission('users.update_status'), auth.deleteUser);
+    router.delete('/admin/users/:id', authenticate, requirePermission('users.delete'), auth.deleteUser);
 
     router.get('/products/types', catalog.productTypes);
     router.get('/products/brands', catalog.productBrands);
@@ -107,21 +107,21 @@ function createApiRouter(config) {
     router.get('/products/:productId/reviews', catalog.listReviews);
     router.post('/products/:productId/reviews', authenticate, requireJson, catalog.createReview);
 
-    router.post('/admin/products', authenticate, requirePermission('catalog.write'), requireJson, catalog.createProduct);
-    router.put('/admin/products/:id', authenticate, requirePermission('catalog.write'), requireJson, catalog.updateProduct);
+    router.post('/admin/products', authenticate, requirePermission('catalog.create'), requireJson, catalog.createProduct);
+    router.put('/admin/products/:id', authenticate, requirePermission('catalog.update'), requireJson, catalog.updateProduct);
     router.delete('/admin/products/:id', authenticate, requirePermission('catalog.delete'), catalog.deleteProduct);
 
     router.get('/catalog/:kind', publicCatalog.listTerms);
     router.get('/admin/catalog/products', authenticate, requirePermission('catalog.read'), catalogAdmin.listProducts);
-    router.post('/admin/catalog/products', authenticate, requirePermission('catalog.write'), requireJson, catalogAdmin.createProduct);
-    router.patch('/admin/catalog/products/reorder', authenticate, requirePermission('catalog.write'), requireJson, catalogAdmin.reorderProducts);
+    router.post('/admin/catalog/products', authenticate, requirePermission('catalog.create'), requireJson, catalogAdmin.createProduct);
+    router.patch('/admin/catalog/products/reorder', authenticate, requirePermission('catalog.update'), requireJson, catalogAdmin.reorderProducts);
     router.get('/admin/catalog/products/:id', authenticate, requirePermission('catalog.read'), catalogAdmin.getProduct);
-    router.patch('/admin/catalog/products/:id', authenticate, requirePermission('catalog.write'), requireJson, catalogAdmin.updateProduct);
+    router.patch('/admin/catalog/products/:id', authenticate, requirePermission('catalog.update'), requireJson, catalogAdmin.updateProduct);
     router.get('/admin/catalog/:kind', authenticate, requirePermission('catalog.read'), catalogAdmin.listTerms);
-    router.post('/admin/catalog/:kind', authenticate, requirePermission('catalog.write'), requireJson, catalogAdmin.createTerm);
-    router.patch('/admin/catalog/:kind/reorder', authenticate, requirePermission('catalog.write'), requireJson, catalogAdmin.reorderTerms);
+    router.post('/admin/catalog/:kind', authenticate, requirePermission('catalog.create'), requireJson, catalogAdmin.createTerm);
+    router.patch('/admin/catalog/:kind/reorder', authenticate, requirePermission('catalog.update'), requireJson, catalogAdmin.reorderTerms);
     router.get('/admin/catalog/:kind/:id', authenticate, requirePermission('catalog.read'), catalogAdmin.getTerm);
-    router.patch('/admin/catalog/:kind/:id', authenticate, requirePermission('catalog.write'), requireJson, catalogAdmin.updateTerm);
+    router.patch('/admin/catalog/:kind/:id', authenticate, requirePermission('catalog.update'), requireJson, catalogAdmin.updateTerm);
     router.delete('/admin/catalog/:kind/:id', authenticate, requirePermission('catalog.delete'), catalogAdmin.deleteTerm);
 
     router.get('/cart', authenticate, catalog.getCart);
@@ -131,45 +131,45 @@ function createApiRouter(config) {
     router.post('/cart/merge', authenticate, requireJson, catalog.mergeCart);
 
     router.get('/brand-settings/public', brandSettings.getPublic);
-    router.get('/brand-settings/admin', authenticate, requireAdmin, brandSettings.getAdmin);
-    router.put('/brand-settings/admin', authenticate, requireAdmin, requireJson, brandSettings.updateAdmin);
+    router.get('/brand-settings/admin', authenticate, requirePermission('brand.read'), brandSettings.getAdmin);
+    router.put('/brand-settings/admin', authenticate, requirePermission('brand.update'), requireJson, brandSettings.updateAdmin);
 
     router.get('/footer-quick-links', footerLinks.listPublic);
-    router.get('/admin/footer-quick-links', authenticate, requireAdmin, footerLinks.listAdmin);
-    router.post('/admin/footer-quick-links', authenticate, requireAdmin, requireJson, footerLinks.create);
-    router.patch('/admin/footer-quick-links/reorder', authenticate, requireAdmin, requireJson, footerLinks.reorder);
-    router.get('/admin/footer-quick-links/:id', authenticate, requireAdmin, footerLinks.getAdmin);
-    router.patch('/admin/footer-quick-links/:id', authenticate, requireAdmin, requireJson, footerLinks.update);
-    router.delete('/admin/footer-quick-links/:id', authenticate, requireAdmin, footerLinks.remove);
+    router.get('/admin/footer-quick-links', authenticate, requirePermission('footerLinks.read'), footerLinks.listAdmin);
+    router.post('/admin/footer-quick-links', authenticate, requirePermission('footerLinks.create'), requireJson, footerLinks.create);
+    router.patch('/admin/footer-quick-links/reorder', authenticate, requirePermission('footerLinks.update'), requireJson, footerLinks.reorder);
+    router.get('/admin/footer-quick-links/:id', authenticate, requirePermission('footerLinks.read'), footerLinks.getAdmin);
+    router.patch('/admin/footer-quick-links/:id', authenticate, requirePermission('footerLinks.update'), requireJson, footerLinks.update);
+    router.delete('/admin/footer-quick-links/:id', authenticate, requirePermission('footerLinks.delete'), footerLinks.remove);
 
     router.get('/services', services.listPublic);
     router.get('/services/:slug', services.getPublic);
-    router.get('/admin/services/categories', authenticate, requirePermission('catalog.read'), services.listCategories);
-    router.post('/admin/services/categories', authenticate, requirePermission('catalog.write'), requireJson, services.createCategory);
-    router.patch('/admin/services/categories/reorder', authenticate, requirePermission('catalog.write'), requireJson, services.reorderCategories);
-    router.get('/admin/services/categories/:id', authenticate, requirePermission('catalog.read'), services.getCategory);
-    router.patch('/admin/services/categories/:id', authenticate, requirePermission('catalog.write'), requireJson, services.updateCategory);
-    router.delete('/admin/services/categories/:id', authenticate, requirePermission('catalog.delete'), services.deleteCategory);
-    router.get('/admin/services/items', authenticate, requirePermission('catalog.read'), services.listItems);
-    router.post('/admin/services/items', authenticate, requirePermission('catalog.write'), requireJson, services.createItem);
-    router.patch('/admin/services/items/reorder', authenticate, requirePermission('catalog.write'), requireJson, services.reorderItems);
-    router.get('/admin/services/items/:id', authenticate, requirePermission('catalog.read'), services.getItem);
-    router.patch('/admin/services/items/:id', authenticate, requirePermission('catalog.write'), requireJson, services.updateItem);
-    router.delete('/admin/services/items/:id', authenticate, requirePermission('catalog.delete'), services.deleteItem);
+    router.get('/admin/services/categories', authenticate, requirePermission('services.read'), services.listCategories);
+    router.post('/admin/services/categories', authenticate, requirePermission('services.create'), requireJson, services.createCategory);
+    router.patch('/admin/services/categories/reorder', authenticate, requirePermission('services.update'), requireJson, services.reorderCategories);
+    router.get('/admin/services/categories/:id', authenticate, requirePermission('services.read'), services.getCategory);
+    router.patch('/admin/services/categories/:id', authenticate, requirePermission('services.update'), requireJson, services.updateCategory);
+    router.delete('/admin/services/categories/:id', authenticate, requirePermission('services.delete'), services.deleteCategory);
+    router.get('/admin/services/items', authenticate, requirePermission('services.read'), services.listItems);
+    router.post('/admin/services/items', authenticate, requirePermission('services.create'), requireJson, services.createItem);
+    router.patch('/admin/services/items/reorder', authenticate, requirePermission('services.update'), requireJson, services.reorderItems);
+    router.get('/admin/services/items/:id', authenticate, requirePermission('services.read'), services.getItem);
+    router.patch('/admin/services/items/:id', authenticate, requirePermission('services.update'), requireJson, services.updateItem);
+    router.delete('/admin/services/items/:id', authenticate, requirePermission('services.delete'), services.deleteItem);
 
     router.get('/pages/:pageKey', pageContent.getPublic);
-    router.get('/admin/page-content/media/orphans', authenticate, requireAdmin, pageContent.listOrphans);
-    router.post('/admin/page-content/media/orphans/delete', authenticate, requireAdmin, requirePermission('uploads.write'), requireJson, pageContent.deleteOrphans);
-    router.get('/admin/page-content/:pageKey', authenticate, requireAdmin, pageContent.getAdmin);
-    router.get('/admin/page-content/:pageKey/preview', authenticate, requireAdmin, pageContent.preview);
-    router.put('/admin/page-content/:pageKey/draft', authenticate, requireAdmin, requireJson, pageContent.saveDraft);
-    router.post('/admin/page-content/:pageKey/publish', authenticate, requireAdmin, requireJson, pageContent.publish);
-    router.post('/admin/page-content/:pageKey/revert', authenticate, requireAdmin, requireJson, pageContent.revert);
+    router.get('/admin/page-content/media/orphans', authenticate, requirePermission('pages.read'), pageContent.listOrphans);
+    router.post('/admin/page-content/media/orphans/delete', authenticate, requirePermission('uploads.delete'), requireJson, pageContent.deleteOrphans);
+    router.get('/admin/page-content/:pageKey', authenticate, requirePermission('pages.read'), pageContent.getAdmin);
+    router.get('/admin/page-content/:pageKey/preview', authenticate, requirePermission('pages.read'), pageContent.preview);
+    router.put('/admin/page-content/:pageKey/draft', authenticate, requirePermission('pages.update'), requireJson, pageContent.saveDraft);
+    router.post('/admin/page-content/:pageKey/publish', authenticate, requirePermission('pages.publish'), requireJson, pageContent.publish);
+    router.post('/admin/page-content/:pageKey/revert', authenticate, requirePermission('pages.update'), requireJson, pageContent.revert);
 
     router.post('/contact', limitSensitive, requireJson, content.createMessage);
-    router.get('/admin/messages', authenticate, requireAdmin, content.listMessages);
-    router.get('/admin/messages/:id', authenticate, requireAdmin, content.getMessage);
-    router.delete('/admin/messages/:id', authenticate, requireAdmin, content.deleteMessage);
+    router.get('/admin/messages', authenticate, requirePermission('messages.read'), content.listMessages);
+    router.get('/admin/messages/:id', authenticate, requirePermission('messages.read'), content.getMessage);
+    router.delete('/admin/messages/:id', authenticate, requirePermission('messages.delete'), content.deleteMessage);
 
     router.get('/posts', content.listPosts);
     router.get('/posts/:id', content.getPost);
@@ -177,7 +177,7 @@ function createApiRouter(config) {
     router.put('/admin/posts/:id', authenticate, requireAdmin, requireJson, content.updatePost);
     router.delete('/admin/posts/:id', authenticate, requireAdmin, content.deletePost);
 
-    router.post('/admin/uploads', authenticate, requirePermission('uploads.write'), uploadImage, content.upload);
+    router.post('/admin/uploads', authenticate, requirePermission('uploads.upload'), uploadImage, content.upload);
 
     router.get('/gallery', gallery.listPublic);
     router.get('/gallery/:id', gallery.getPublic);
@@ -188,13 +188,13 @@ function createApiRouter(config) {
     router.patch('/admin/gallery/:id', authenticate, requireAdmin, requireJson, gallery.update);
     router.delete('/admin/gallery/:id', authenticate, requireAdmin, gallery.remove);
 
-    router.get('/admin/custom-build/setup', authenticate, requirePermission('catalog.read'), wizardSetup.list);
-    router.get('/admin/custom-build/setup/:categoryId', authenticate, requirePermission('catalog.read'), wizardSetup.getCategory);
-    router.post('/admin/custom-build/setup/:categoryId/options', authenticate, requirePermission('catalog.write'), requireJson, wizardSetup.createOption);
-    router.patch('/admin/custom-build/setup/:categoryId/reorder', authenticate, requirePermission('catalog.write'), requireJson, wizardSetup.reorderOptions);
-    router.post('/admin/custom-build/setup/:categoryId/options/:optionId/duplicate', authenticate, requirePermission('catalog.write'), wizardSetup.duplicateOption);
-    router.patch('/admin/custom-build/setup/:categoryId/options/:optionId', authenticate, requirePermission('catalog.write'), requireJson, wizardSetup.updateOption);
-    router.delete('/admin/custom-build/setup/:categoryId/options/:optionId', authenticate, requirePermission('catalog.delete'), wizardSetup.deleteOption);
+    router.get('/admin/custom-build/setup', authenticate, requirePermission('customBuild.read'), wizardSetup.list);
+    router.get('/admin/custom-build/setup/:categoryId', authenticate, requirePermission('customBuild.read'), wizardSetup.getCategory);
+    router.post('/admin/custom-build/setup/:categoryId/options', authenticate, requirePermission('customBuild.manage_options'), requireJson, wizardSetup.createOption);
+    router.patch('/admin/custom-build/setup/:categoryId/reorder', authenticate, requirePermission('customBuild.manage_options'), requireJson, wizardSetup.reorderOptions);
+    router.post('/admin/custom-build/setup/:categoryId/options/:optionId/duplicate', authenticate, requirePermission('customBuild.manage_options'), wizardSetup.duplicateOption);
+    router.patch('/admin/custom-build/setup/:categoryId/options/:optionId', authenticate, requirePermission('customBuild.manage_options'), requireJson, wizardSetup.updateOption);
+    router.delete('/admin/custom-build/setup/:categoryId/options/:optionId', authenticate, requirePermission('customBuild.manage_options'), wizardSetup.deleteOption);
 
     router.get('/custom-build/options', customBuild.listOptions);
     router.get('/custom-build/options/:categoryId', customBuild.getCategory);

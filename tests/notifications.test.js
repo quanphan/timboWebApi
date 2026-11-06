@@ -1,5 +1,6 @@
 const assert = require('node:assert/strict');
 const { after, before, describe, it } = require('node:test');
+const AdminNotification = require('../models/AdminNotification');
 const CustomBuildInquiry = require('../models/CustomBuildInquiry');
 const Message = require('../models/Message');
 const { getConfig } = require('../config/env');
@@ -71,6 +72,10 @@ describe('admin notifications', { concurrency: false }, () => {
 
     before(async () => {
         context = await startTestApp();
+        await AdminNotification.syncIndexes();
+        await AdminNotification.deleteMany({});
+        await Message.deleteMany({});
+        await CustomBuildInquiry.deleteMany({});
     });
 
     after(async () => {

@@ -312,6 +312,14 @@ test('uploads accept a real image, reject a fake image, and keep the stored path
     const fake = await upload(adminToken, Buffer.from('not-an-image'), 'image/png', 'note.png', 'guitars');
     assert.equal(fake.status, 415);
 
+    const heicBytes = Buffer.concat([
+        Buffer.alloc(4),
+        Buffer.from('ftypheic', 'ascii'),
+        Buffer.alloc(8),
+    ]);
+    const heic = await upload(adminToken, heicBytes, 'image/jpeg', 'photo.jpg', 'guitars');
+    assert.equal(heic.status, 415);
+
     const first = await upload(adminToken, pngBytes, 'image/png', '../cover.png', 'guitars');
     assert.equal(first.status, 201);
     assert.match(first.body.data.path, /^\/uploads\/guitars\/[a-f0-9]{32}\.png$/);

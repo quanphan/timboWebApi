@@ -12,7 +12,7 @@ const {
 } = require('../utils/pageImagePaths');
 const { cleanString } = require('../utils/text');
 
-const PAGE_KEYS = ['about', 'build-process'];
+const PAGE_KEYS = ['about', 'build-process', 'services', 'contact'];
 const LANGUAGES = ['en', 'vi'];
 const SECTION_TYPES = [
     'hero',
@@ -141,7 +141,7 @@ function readSection(raw, index) {
     }
     const unknown = Object.keys(raw).filter((key) => ![
         'id', 'type', 'visible', 'title', 'subtitle', 'body', 'quote',
-        'image', 'imageAlt', 'images', 'videoUrl', 'ctaLabel', 'ctaUrl', 'layout', 'number',
+        'image', 'imageSecondary', 'imageAlt', 'images', 'videoUrl', 'ctaLabel', 'ctaUrl', 'layout', 'number',
     ].includes(key));
     if (unknown.length) {
         throw new ApiError(422, 'VALIDATION_ERROR', 'Page content is invalid.', [{
@@ -185,6 +185,7 @@ function readSection(raw, index) {
         body: stripUnsafeText(raw.body, LIMITS.body),
         quote: stripUnsafeText(raw.quote, LIMITS.quote),
         image: sanitizeImagePath(raw.image, 'image'),
+        imageSecondary: sanitizeImagePath(raw.imageSecondary, 'imageSecondary'),
         imageAlt: stripUnsafeText(raw.imageAlt, LIMITS.imageAlt),
         images: images.map((item, imageIndex) => {
             if (!item || typeof item !== 'object') {
@@ -265,6 +266,7 @@ function presentLocale(value) {
             body: section.body || '',
             quote: section.quote || '',
             image: section.image || '',
+            imageSecondary: section.imageSecondary || '',
             imageAlt: section.imageAlt || '',
             images: Array.isArray(section.images) ? section.images : [],
             videoUrl: section.videoUrl || '',

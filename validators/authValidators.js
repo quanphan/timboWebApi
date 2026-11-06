@@ -231,13 +231,29 @@ function validateCreateAdmin(body) {
     return { name, email, password, username: username || null, phone, permissions };
 }
 
-function readPermissions(value, errors) {
+function readPermissions(value, errors, { allowReserved = false } = {}) {
     if (value === undefined) {
         return null;
     }
     const parsed = assertAssignablePermissions(value);
-    if (!parsed || parsed.unknown.length || parsed.reserved.length) {
-        errors.push(issue('permissions', 'INVALID', 'Permissions contain a value this account cannot receive.'));
+    if (!parsed) {
+        errors.push(issue('permissions', 'INVALID', 'Permissions must be an array of permission strings.'));
+        return null;
+    }
+    if (parsed.unknown.length) {
+        errors.push(issue(
+            'permissions',
+            'INVALID',
+            `Unknown permissions: ${parsed.unknown.join(', ')}.`,
+        ));
+        return null;
+    }
+    if (!allowReserved && parsed.reserved.length) {
+        errors.push(issue(
+            'permissions',
+            'INVALID',
+            `These permissions cannot be assigned here: ${parsed.reserved.join(', ')}.`,
+        ));
         return null;
     }
     return parsed.unique;
@@ -248,14 +264,14 @@ function validateRoleChange(body) {
     const errors = [];
     const updates = {};
     if (body.role !== undefined) {
-        if (body.role !== 'admin' && body.role !== 'customer') {
-            errors.push(issue('role', 'INVALID', 'Role must be admin or customer.'));
+        if (!['admin', 'editor', 'custom', 'customer'].includes(body.role)) {
+            errors.push(issue('role', 'INVALID', 'Role must be admin, editor, custom, or customer.'));
         } else {
             updates.role = body.role;
         }
     }
     if (body.permissions !== undefined) {
-        updates.permissions = readPermissions(body.permissions, errors);
+        updates.permissions = readPermissions(body.permissions, errors, { allowReserved: true });
     }
     if (!Object.prototype.hasOwnProperty.call(updates, 'role') && !Object.prototype.hasOwnProperty.call(updates, 'permissions')) {
         errors.push(issue('role', 'REQUIRED', 'Provide a role or a permissions list.'));

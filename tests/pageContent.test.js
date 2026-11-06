@@ -75,9 +75,15 @@ after(async () => {
 test('public visitors read published pages and never receive drafts', async () => {
     const emptyAbout = await request(context.baseUrl, '/api/pages/about');
     const emptyProcess = await request(context.baseUrl, '/api/pages/build-process');
+    const emptyServices = await request(context.baseUrl, '/api/pages/services');
+    const emptyContact = await request(context.baseUrl, '/api/pages/contact');
     assert.equal(emptyAbout.status, 200);
     assert.equal(emptyAbout.body.data, null);
     assert.equal(emptyProcess.body.data, null);
+    assert.equal(emptyServices.status, 200);
+    assert.equal(emptyServices.body.data, null);
+    assert.equal(emptyContact.status, 200);
+    assert.equal(emptyContact.body.data, null);
 
     const unknown = await request(context.baseUrl, '/api/pages/home');
     assert.equal(unknown.status, 404);
@@ -432,6 +438,147 @@ test('gallery sections keep image order and unused page files stay until an expl
     assert.equal(deleted.body.data.deleted[0].path, orphan);
     assert.equal(fs.existsSync(path.join(context.uploadsDir, orphan.replace(/^\/uploads\//, ''))), false);
     assert.equal(fs.existsSync(path.join(context.uploadsDir, kept.replace(/^\/uploads\//, ''))), true);
+});
+
+test('services page stores independent image slots and publishes them', async () => {
+    async function uploadPng() {
+        const form = new FormData();
+        form.append('file', new Blob([pngBytes], { type: 'image/png' }), 'cover.png');
+        const response = await fetch(`${context.baseUrl}/api/admin/uploads?scope=pages`, {
+            method: 'POST',
+            headers: { Authorization: `Bearer ${adminToken}` },
+            body: form,
+        });
+        const payload = await response.json();
+        assert.equal(response.status, 201);
+        return payload.data.path;
+    }
+
+    const left = await uploadPng();
+    const right = await uploadPng();
+    const replacement = await uploadPng();
+    const customerDraft = await request(context.baseUrl, '/api/admin/page-content/services/draft', {
+        method: 'PUT',
+        token: customerToken,
+        body: {
+            language: 'en',
+            expectedRevision: 0,
+            locale: { title: 'Services', sections: [{ id: 'services-expertise', type: 'image', image: left }] },
+        },
+    });
+    assert.equal(customerDraft.status, 403);
+
+    const draft = await request(context.baseUrl, '/api/admin/page-content/services/draft', {
+        method: 'PUT',
+        token: adminToken,
+        body: {
+            language: 'en',
+            expectedRevision: 0,
+            locale: {
+                title: 'Services',
+                sections: [{
+                    id: 'services-expertise',
+                    type: 'image',
+                    image: left,
+                    imageSecondary: right,
+                }],
+            },
+        },
+    });
+    assert.equal(draft.status, 200);
+    assert.equal(draft.body.data.draft.en.sections[0].image, left);
+    assert.equal(draft.body.data.draft.en.sections[0].imageSecondary, right);
+
+    const updated = await request(context.baseUrl, '/api/admin/page-content/services/draft', {
+        method: 'PUT',
+        token: adminToken,
+        body: {
+            language: 'en',
+            expectedRevision: draft.body.data.revision,
+            locale: {
+                title: 'Services',
+                sections: [{
+                    id: 'services-expertise',
+                    type: 'image',
+                    image: replacement,
+                    imageSecondary: right,
+                }],
+            },
+        },
+    });
+    assert.equal(updated.status, 200);
+    assert.equal(updated.body.data.draft.en.sections[0].image, replacement);
+    assert.equal(updated.body.data.draft.en.sections[0].imageSecondary, right);
+
+    const unpublished = await request(context.baseUrl, '/api/pages/services');
+    assert.equal(unpublished.body.data, null);
+
+    const published = await request(context.baseUrl, '/api/admin/page-content/services/publish', {
+        method: 'POST',
+        token: adminToken,
+        body: { expectedRevision: updated.body.data.revision },
+    });
+    assert.equal(published.status, 200);
+    const live = await request(context.baseUrl, '/api/pages/services');
+    assert.equal(live.status, 200);
+    assert.equal(live.body.data.locales.en.sections[0].image, replacement);
+    assert.equal(live.body.data.locales.en.sections[0].imageSecondary, right);
+});
+
+test('contact page stores the hero image and publishes it', async () => {
+    async function uploadPng() {
+        const form = new FormData();
+        form.append('file', new Blob([pngBytes], { type: 'image/png' }), 'cover.png');
+        const response = await fetch(`${context.baseUrl}/api/admin/uploads?scope=pages`, {
+            method: 'POST',
+            headers: { Authorization: `Bearer ${adminToken}` },
+            body: form,
+        });
+        const payload = await response.json();
+        assert.equal(response.status, 201);
+        return payload.data.path;
+    }
+
+    const hero = await uploadPng();
+    const customerDraft = await request(context.baseUrl, '/api/admin/page-content/contact/draft', {
+        method: 'PUT',
+        token: customerToken,
+        body: {
+            language: 'en',
+            expectedRevision: 0,
+            locale: { title: 'Contact', sections: [{ id: 'contact-hero', type: 'image', image: hero }] },
+        },
+    });
+    assert.equal(customerDraft.status, 403);
+
+    const draft = await request(context.baseUrl, '/api/admin/page-content/contact/draft', {
+        method: 'PUT',
+        token: adminToken,
+        body: {
+            language: 'en',
+            expectedRevision: 0,
+            locale: {
+                title: 'Contact',
+                sections: [{ id: 'contact-hero', type: 'image', image: hero }],
+            },
+        },
+    });
+    assert.equal(draft.status, 200);
+    assert.equal(draft.body.data.draft.en.sections[0].image, hero);
+
+    const unpublished = await request(context.baseUrl, '/api/pages/contact');
+    assert.equal(unpublished.body.data, null);
+
+    const published = await request(context.baseUrl, '/api/admin/page-content/contact/publish', {
+        method: 'POST',
+        token: adminToken,
+        body: { expectedRevision: draft.body.data.revision },
+    });
+    assert.equal(published.status, 200);
+    const live = await request(context.baseUrl, '/api/pages/contact');
+    assert.equal(live.status, 200);
+    assert.equal(live.body.data.locales.en.sections[0].id, 'contact-hero');
+    assert.equal(live.body.data.locales.en.sections[0].image, hero);
 });
 
 });
