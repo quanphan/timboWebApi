@@ -300,6 +300,160 @@ test('series stores short description and price range without dropping existing 
     assert.equal(minOnly.body.data.translations.vi.shortDescription, 'Dong dan thuc dung.');
 });
 
+test('series showHome defaults false and featured products follow series then product sort', async () => {
+    const hiddenSeries = await request(context.baseUrl, '/api/admin/catalog/series', {
+        method: 'POST',
+        token: adminToken,
+        body: { name: 'Hidden home series', slug: 'hidden-home-series', sortOrder: 0 },
+    });
+    assert.equal(hiddenSeries.status, 201);
+    assert.equal(hiddenSeries.body.data.showHome, false);
+
+    const firstSeries = await request(context.baseUrl, '/api/admin/catalog/series', {
+        method: 'POST',
+        token: adminToken,
+        body: { name: 'Home series A', slug: 'home-series-a', sortOrder: 2, showHome: true },
+    });
+    const secondSeries = await request(context.baseUrl, '/api/admin/catalog/series', {
+        method: 'POST',
+        token: adminToken,
+        body: { name: 'Home series B', slug: 'home-series-b', sortOrder: 1, showHome: true },
+    });
+    const inactiveSeries = await request(context.baseUrl, '/api/admin/catalog/series', {
+        method: 'POST',
+        token: adminToken,
+        body: {
+            name: 'Inactive home series',
+            slug: 'inactive-home-series',
+            sortOrder: 0,
+            showHome: true,
+            isActive: false,
+        },
+    });
+    assert.equal(firstSeries.status, 201);
+    assert.equal(firstSeries.body.data.showHome, true);
+    assert.equal(secondSeries.body.data.showHome, true);
+
+    const publicSeries = await request(context.baseUrl, '/api/catalog/series');
+    const publicHome = publicSeries.body.data.filter((item) => item.showHome === true);
+    assert.equal(publicHome.some((item) => item.slug === 'home-series-a'), true);
+    assert.equal(publicHome.some((item) => item.slug === 'inactive-home-series'), false);
+    assert.equal(publicSeries.body.data.some((item) => item.slug === 'hidden-home-series' && item.showHome === true), false);
+
+    await request(context.baseUrl, '/api/admin/catalog/products', {
+        method: 'POST',
+        token: adminToken,
+        body: {
+            name: 'Later in first series',
+            slug: 'later-in-first-series',
+            status: 'published',
+            seriesId: firstSeries.body.data.id,
+            sortOrder: 2,
+            image: '/uploads/guitars/later.png',
+        },
+    });
+    const firstPick = await request(context.baseUrl, '/api/admin/catalog/products', {
+        method: 'POST',
+        token: adminToken,
+        body: {
+            name: 'First in first series',
+            slug: 'first-in-first-series',
+            status: 'published',
+            seriesId: firstSeries.body.data.id,
+            sortOrder: 1,
+            image: '/uploads/guitars/first.png',
+        },
+    });
+    const secondPick = await request(context.baseUrl, '/api/admin/catalog/products', {
+        method: 'POST',
+        token: adminToken,
+        body: {
+            name: 'Lead in second series',
+            slug: 'lead-in-second-series',
+            status: 'published',
+            seriesId: secondSeries.body.data.id,
+            sortOrder: 0,
+            image: '/uploads/guitars/lead.png',
+        },
+    });
+    await request(context.baseUrl, '/api/admin/catalog/products', {
+        method: 'POST',
+        token: adminToken,
+        body: {
+            name: 'Overflow home guitar',
+            slug: 'overflow-home-guitar',
+            status: 'published',
+            seriesId: firstSeries.body.data.id,
+            sortOrder: 3,
+        },
+    });
+    await request(context.baseUrl, '/api/admin/catalog/products', {
+        method: 'POST',
+        token: adminToken,
+        body: {
+            name: 'Draft home guitar',
+            slug: 'draft-home-guitar',
+            status: 'draft',
+            seriesId: secondSeries.body.data.id,
+            sortOrder: 0,
+        },
+    });
+    await request(context.baseUrl, '/api/admin/catalog/products', {
+        method: 'POST',
+        token: adminToken,
+        body: {
+            name: 'Inactive series guitar',
+            slug: 'inactive-series-guitar',
+            status: 'published',
+            seriesId: inactiveSeries.body.data.id,
+            sortOrder: 0,
+        },
+    });
+    await request(context.baseUrl, '/api/admin/catalog/products', {
+        method: 'POST',
+        token: adminToken,
+        body: {
+            name: 'Hidden series guitar',
+            slug: 'hidden-series-guitar',
+            status: 'published',
+            seriesId: hiddenSeries.body.data.id,
+            sortOrder: 0,
+        },
+    });
+
+    const featured = await request(context.baseUrl, '/api/products/featured');
+    assert.equal(featured.status, 200);
+    assert.deepEqual(featured.body.data.map((item) => item.name), [
+        'Lead in second series',
+        'First in first series',
+        'Later in first series',
+    ]);
+    assert.equal(featured.body.data[1].image, '/uploads/guitars/first.png');
+    assert.equal(featured.body.data[1].series.id, firstSeries.body.data.id);
+
+    const turnedOff = await request(context.baseUrl, `/api/admin/catalog/series/${secondSeries.body.data.id}`, {
+        method: 'PATCH',
+        token: adminToken,
+        body: { showHome: false },
+    });
+    assert.equal(turnedOff.body.data.showHome, false);
+    const afterOff = await request(context.baseUrl, '/api/products/featured');
+    assert.equal(afterOff.body.data.some((item) => item.id === secondPick.body.data.id), false);
+    assert.equal(afterOff.body.data.some((item) => item.id === firstPick.body.data.id), true);
+
+    const publicProduct = await request(context.baseUrl, `/api/products/${firstPick.body.data.id}`);
+    assert.equal(publicProduct.status, 200);
+    assert.equal(publicProduct.body.data.name, 'First in first series');
+
+    const bySeries = await request(
+        context.baseUrl,
+        `/api/products?seriesId=${firstSeries.body.data.id}&sort=manual`,
+    );
+    assert.equal(bySeries.status, 200);
+    assert.equal(bySeries.body.data.every((item) => item.series?.id === firstSeries.body.data.id), true);
+    assert.equal(bySeries.body.data.some((item) => item.status === 'draft'), false);
+});
+
 test('uploads accept a real image, reject a fake image, and keep the stored path', async () => {
     const anonymous = await upload('', pngBytes, 'image/png', 'a.png', 'guitars');
     const customer = await upload(customerToken, pngBytes, 'image/png', '../secret.png', 'categories');

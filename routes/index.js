@@ -102,6 +102,7 @@ function createApiRouter(config) {
 
     router.get('/products/types', catalog.productTypes);
     router.get('/products/brands', catalog.productBrands);
+    router.get('/products/featured', catalog.listFeaturedProducts);
     router.get('/products', catalog.listProducts);
     router.get('/products/:id', catalog.getProduct);
     router.get('/products/:productId/reviews', catalog.listReviews);

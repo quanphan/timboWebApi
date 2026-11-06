@@ -283,6 +283,14 @@ function buildQuery(query, { includeDrafts = false } = {}) {
     if (query.inStock === 'false') {
         and.push({ $or: [{ qty: { $lte: 0 } }, { qty: null }] });
     }
+    const seriesId = cleanString(query.seriesId);
+    if (seriesId) {
+        if (!mongoose.isValidObjectId(seriesId)) {
+            and.push({ _id: null });
+        } else {
+            and.push({ seriesId });
+        }
+    }
     return and.length ? { $and: and } : {};
 }
 
@@ -329,6 +337,33 @@ function createProductService() {
             }
             const [presented] = await withRelations([product]);
             return presented;
+        },
+
+        async listFeaturedHome() {
+            const series = await CatalogTerm.find({
+                kind: 'series',
+                isActive: { $ne: false },
+                showHome: true,
+            }).sort({ sortOrder: 1, name: 1, _id: 1 }).select('_id');
+            if (!series.length) {
+                return [];
+            }
+            const rank = new Map(series.map((term, index) => [String(term._id), index]));
+            const products = await Product.find({
+                $and: [
+                    publishedFilter(),
+                    { seriesId: { $in: series.map((term) => term._id) } },
+                ],
+            });
+            products.sort((left, right) => {
+                const seriesDelta = (rank.get(String(left.seriesId)) ?? 9999)
+                    - (rank.get(String(right.seriesId)) ?? 9999);
+                if (seriesDelta !== 0) return seriesDelta;
+                const orderDelta = (left.sortOrder || 0) - (right.sortOrder || 0);
+                if (orderDelta !== 0) return orderDelta;
+                return String(left._id).localeCompare(String(right._id));
+            });
+            return withRelations(products.slice(0, 3));
         },
 
         async listTypes() {

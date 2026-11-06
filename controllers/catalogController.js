@@ -8,6 +8,9 @@ function createCatalogController({ productService, cartService, reviewService })
             const result = await productService.list(req.query);
             sendData(res, result.products, 200, result.meta);
         }),
+        listFeaturedProducts: asyncHandler(async (req, res) => {
+            sendData(res, await productService.listFeaturedHome());
+        }),
         productTypes: asyncHandler(async (req, res) => {
             sendData(res, await productService.listTypes());
         }),

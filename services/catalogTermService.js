@@ -34,7 +34,7 @@ function presentLocale(value, fallbackName, fallbackDescription) {
 }
 
 function presentTerm(term) {
-    return {
+    const data = {
         id: String(term._id),
         kind: term.kind,
         name: term.name,
@@ -55,6 +55,10 @@ function presentTerm(term) {
         createdAt: term.createdAt || null,
         updatedAt: term.updatedAt || term.createdAt || null,
     };
+    if (term.kind === 'series') {
+        data.showHome = term.showHome === true;
+    }
+    return data;
 }
 
 function readSlug(value) {
@@ -225,6 +229,18 @@ function readInput(body, { partial = false, kind = null } = {}) {
         updates.shortDescription = shortDescription || null;
     }
     if (kind === 'series') {
+        if (body.showHome !== undefined) {
+            if (typeof body.showHome !== 'boolean') {
+                throw new ApiError(422, 'VALIDATION_ERROR', 'Catalog item is invalid.', [{
+                    field: 'showHome',
+                    code: 'INVALID',
+                    message: 'showHome must be true or false.',
+                }]);
+            }
+            updates.showHome = body.showHome;
+        } else if (!partial) {
+            updates.showHome = false;
+        }
         if (!partial || body.minPrice !== undefined) {
             const minPrice = readOptionalPrice(body.minPrice, 'minPrice');
             if (minPrice !== undefined) updates.minPrice = minPrice;

@@ -21,6 +21,7 @@ const catalogTermSchema = new mongoose.Schema({
     },
     imagePath: { type: String, default: null, maxlength: 240 },
     isActive: { type: Boolean, default: true },
+    showHome: { type: Boolean, default: false },
     sortOrder: { type: Number, default: 0 },
     parentId: { type: mongoose.Schema.Types.ObjectId, ref: 'CatalogTerm', default: null },
     shortDescription: { type: String, default: null, maxlength: 200 },
