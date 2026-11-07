@@ -6,25 +6,47 @@ const { pageMeta } = require('../utils/http');
 const { parsePagination } = require('../utils/pagination');
 const { cleanString } = require('../utils/text');
 const { parseGalleryUrl, resolveGalleryFile } = require('../utils/galleryPaths');
+const { parseGalleryVideoUrl, normalizeThumbnailUrl } = require('../utils/galleryVideo');
 
 const TITLE_MAX = 160;
 const EXCERPT_MAX = 400;
 const CONTENT_MAX = 8000;
 const MEDIA_IMAGE_MAX = 5;
-const MEDIA_VIDEO_MAX = 1;
+const MEDIA_VIDEO_MAX = 5;
 const MEDIA_MAX = MEDIA_IMAGE_MAX + MEDIA_VIDEO_MAX;
 
+function inferProvider(item) {
+    if (parseGalleryUrl(item.path || item.url || '')) return item.provider === 'upload' || !item.provider ? 'upload' : item.provider;
+    const parsed = parseGalleryVideoUrl(item.sourceUrl || item.path || item.url);
+    if (parsed.ok) return parsed.provider;
+    if (item.provider && ['upload', 'youtube', 'vimeo', 'facebook', 'direct'].includes(item.provider)) {
+        return item.provider;
+    }
+    return 'upload';
+}
+
 function presentMedia(item, { admin = false } = {}) {
-    const publicPath = item.path;
+    const sourceUrl = item.sourceUrl || item.path || '';
+    const provider = inferProvider(item);
+    const parsed = provider === 'upload' ? null : parseGalleryVideoUrl(sourceUrl);
+    const thumbnail =
+        item.thumbnail ||
+        (parsed && parsed.ok && parsed.thumbnail ? parsed.thumbnail : '');
     const base = {
         id: item.id,
         kind: item.kind,
-        url: publicPath,
+        type: item.kind,
+        url: sourceUrl,
+        sourceUrl,
+        provider,
+        videoId: item.videoId || (parsed && parsed.ok ? parsed.videoId : '') || '',
+        thumbnail,
+        sortOrder: Number.isFinite(Number(item.sortOrder)) ? Number(item.sortOrder) : 0,
     };
     if (!admin) return base;
     return {
         ...base,
-        path: publicPath,
+        path: item.path || sourceUrl,
         mime: item.mime || '',
         size: item.size || 0,
         originalName: item.originalName || '',
@@ -38,7 +60,12 @@ function coverOf(post, { admin = false } = {}) {
 }
 
 function presentPost(post, { admin = false } = {}) {
-    const media = (post.media || []).map((item) => presentMedia(item, { admin }));
+    const media = (post.media || [])
+        .map((item, index) => {
+            const raw = typeof item.toObject === 'function' ? item.toObject() : item;
+            return presentMedia({ ...raw, sortOrder: raw.sortOrder ?? index }, { admin });
+        })
+        .sort((a, b) => a.sortOrder - b.sortOrder);
     const data = {
         id: String(post._id),
         title: post.title,
@@ -50,6 +77,7 @@ function presentPost(post, { admin = false } = {}) {
         cover: coverOf(post, { admin }),
         media,
         coverMediaId: post.coverMediaId || (media[0] ? media[0].id : ''),
+        showAtHome: Boolean(post.showAtHome),
     };
     if (admin) {
         data.status = post.status;
@@ -75,28 +103,77 @@ function validateMediaItem(item, galleryDir, errors, index) {
         return null;
     }
     const id = cleanString(item.id);
-    const kind = item.kind === 'video' ? 'video' : item.kind === 'image' ? 'image' : '';
-    const urlPath = cleanString(item.path || item.url);
-    const parsed = parseGalleryUrl(urlPath);
+    const kind = item.kind === 'video' || item.type === 'video' ? 'video' : item.kind === 'image' || item.type === 'image' ? 'image' : '';
+    const urlPath = cleanString(item.sourceUrl || item.url || item.path);
+    const parsedFile = parseGalleryUrl(urlPath);
     if (!id) {
         errors.push({ field: `media.${index}.id`, code: 'INVALID', message: 'Media id is required.' });
     }
     if (!kind) {
         errors.push({ field: `media.${index}.kind`, code: 'INVALID', message: 'Media kind is invalid.' });
     }
-    if (!parsed || !resolveGalleryFile(galleryDir, urlPath)) {
-        errors.push({ field: `media.${index}.path`, code: 'INVALID', message: 'Media path is not a gallery file.' });
+    const sortOrder = Number.isFinite(Number(item.sortOrder)) ? Number(item.sortOrder) : index;
+    const thumbnailRaw = item.thumbnail === undefined ? '' : cleanString(item.thumbnail);
+    let thumbnail = '';
+    if (thumbnailRaw) {
+        thumbnail = normalizeThumbnailUrl(thumbnailRaw);
+        if (!thumbnail) {
+            errors.push({ field: `media.${index}.thumbnail`, code: 'INVALID', message: 'Thumbnail must be an image URL or gallery image.' });
+        } else if (thumbnail.startsWith('/uploads/gallery/') && !resolveGalleryFile(galleryDir, thumbnail)) {
+            errors.push({ field: `media.${index}.thumbnail`, code: 'INVALID', message: 'Thumbnail is not a gallery image file.' });
+        }
     }
-    if (parsed && kind && ((kind === 'image' && parsed.kind !== 'images') || (kind === 'video' && parsed.kind !== 'videos'))) {
-        errors.push({ field: `media.${index}.kind`, code: 'INVALID', message: 'Media kind does not match the file.' });
+
+    if (parsedFile) {
+        if (!resolveGalleryFile(galleryDir, urlPath)) {
+            errors.push({ field: `media.${index}.path`, code: 'INVALID', message: 'Media path is not a gallery file.' });
+        }
+        if (kind && ((kind === 'image' && parsedFile.kind !== 'images') || (kind === 'video' && parsedFile.kind !== 'videos'))) {
+            errors.push({ field: `media.${index}.kind`, code: 'INVALID', message: 'Media kind does not match the file.' });
+        }
+        return {
+            id,
+            kind,
+            path: urlPath,
+            sourceUrl: '',
+            provider: 'upload',
+            videoId: '',
+            thumbnail,
+            sortOrder,
+            mime: cleanString(item.mime).slice(0, 80),
+            size: Number.isFinite(Number(item.size)) ? Number(item.size) : 0,
+            originalName: cleanString(item.originalName).slice(0, 80),
+        };
     }
+
+    const expectedProvider = ['youtube', 'facebook', 'vimeo', 'direct'].includes(item.provider)
+        ? item.provider
+        : 'auto';
+    const parsedVideo = parseGalleryVideoUrl(urlPath, { expectedProvider });
+    if (!parsedVideo.ok) {
+        errors.push({
+            field: `media.${index}.url`,
+            code: parsedVideo.code || 'INVALID_VIDEO_URL',
+            message: 'Use a YouTube, Facebook, Vimeo, or direct MP4/WebM URL.',
+        });
+        return null;
+    }
+    if (kind && kind !== 'video') {
+        errors.push({ field: `media.${index}.kind`, code: 'INVALID', message: 'External URLs must be video items.' });
+    }
+    const storedUrl = parsedVideo.sourceUrl || parsedVideo.url;
     return {
         id,
-        kind,
-        path: urlPath,
-        mime: cleanString(item.mime).slice(0, 80),
-        size: Number.isFinite(Number(item.size)) ? Number(item.size) : 0,
-        originalName: cleanString(item.originalName).slice(0, 80),
+        kind: 'video',
+        path: storedUrl,
+        sourceUrl: storedUrl,
+        provider: parsedVideo.provider,
+        videoId: parsedVideo.videoId,
+        thumbnail: thumbnail || parsedVideo.thumbnail,
+        sortOrder,
+        mime: '',
+        size: 0,
+        originalName: '',
     };
 }
 
@@ -168,14 +245,7 @@ function validateBody(body, galleryDir, { partial = false } = {}) {
                 errors.push({
                     field: 'media',
                     code: 'TOO_MANY_VIDEOS',
-                    message: 'A gallery post can include at most one video.',
-                });
-            }
-            if (imageCount > 0 && videoCount > 0) {
-                errors.push({
-                    field: 'media',
-                    code: 'MIXED_MEDIA',
-                    message: 'A gallery post cannot mix images and video.',
+                    message: `A gallery post can include at most ${MEDIA_VIDEO_MAX} videos.`,
                 });
             }
         }
@@ -185,6 +255,18 @@ function validateBody(body, galleryDir, { partial = false } = {}) {
     let coverMediaId;
     if (body.coverMediaId !== undefined) {
         coverMediaId = cleanString(body.coverMediaId);
+    }
+    let showAtHome;
+    if (body.showAtHome !== undefined) {
+        if (body.showAtHome === true || body.showAtHome === 'true') {
+            showAtHome = true;
+        } else if (body.showAtHome === false || body.showAtHome === 'false') {
+            showAtHome = false;
+        } else {
+            errors.push({ field: 'showAtHome', code: 'INVALID', message: 'showAtHome must be true or false.' });
+        }
+    } else if (!partial) {
+        showAtHome = false;
     }
     if (errors.length) {
         throw new ApiError(422, 'VALIDATION_ERROR', 'Gallery post is invalid.', errors);
@@ -199,6 +281,7 @@ function validateBody(body, galleryDir, { partial = false } = {}) {
     if (order !== undefined) updates.order = order;
     if (media !== undefined) updates.media = media;
     if (coverMediaId !== undefined) updates.coverMediaId = coverMediaId;
+    if (showAtHome !== undefined) updates.showAtHome = showAtHome;
     if (updates.status === 'published' && updates.publishedAt === undefined && !partial) {
         updates.publishedAt = new Date();
     }
@@ -212,6 +295,7 @@ async function pathsStillUsed(urlPath, exceptPostId) {
 }
 
 async function deleteGalleryFile(galleryDir, urlPath, exceptPostId) {
+    if (!parseGalleryUrl(urlPath)) return;
     if (!(await pathsStillUsed(urlPath, exceptPostId))) {
         const absolute = resolveGalleryFile(galleryDir, urlPath);
         if (!absolute) return;
@@ -245,6 +329,10 @@ function createGalleryService(config) {
             const category = cleanString(query.category);
             if (category && GALLERY_CATEGORIES.includes(category)) {
                 filter.category = category;
+            }
+            const home = cleanString(query.showAtHome);
+            if (home === 'true' || home === '1') {
+                filter.showAtHome = true;
             }
             const [total, posts] = await Promise.all([
                 GalleryPost.countDocuments(filter),

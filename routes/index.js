@@ -5,7 +5,7 @@ const { createCatalogController, createContentController } = require('../control
 const { createCatalogAdminController, createPublicCatalogController } = require('../controllers/catalogAdminController');
 const { createCustomBuildController } = require('../controllers/customBuildController');
 const { createWizardSetupController } = require('../controllers/wizardSetupController');
-const { createAuthenticate, requireAdmin, requirePermission } = require('../middleware/authenticate');
+const { createAuthenticate, createOptionalAuthenticate, requireAdmin, requirePermission } = require('../middleware/authenticate');
 const { requireJson } = require('../middleware/requireJson');
 const { createSensitiveLimiter } = require('../middleware/rateLimit');
 const { createAuthService } = require('../services/authService');
@@ -22,6 +22,7 @@ const { createGalleryController } = require('../controllers/galleryController');
 const { createGalleryService } = require('../services/galleryService');
 const { createPageContentController } = require('../controllers/pageContentController');
 const { createServiceOfferController } = require('../controllers/serviceOfferController');
+const { createServiceCartController } = require('../controllers/serviceCartController');
 const { createFooterQuickLinkController } = require('../controllers/footerQuickLinkController');
 const { createPageContentService } = require('../services/pageContentService');
 const { createServiceOfferService } = require('../services/serviceOfferService');
@@ -34,6 +35,7 @@ const { sendData } = require('../utils/http');
 function createApiRouter(config) {
     const router = express.Router();
     const authenticate = createAuthenticate(config);
+    const optionalAuthenticate = createOptionalAuthenticate(config);
     const limitSensitive = createSensitiveLimiter(config);
     const auth = createAuthController(createAuthService(config), createAccountService());
     const catalog = createCatalogController({
@@ -60,6 +62,7 @@ function createApiRouter(config) {
     const galleryUpload = createGalleryUploadMiddleware(config);
     const pageContent = createPageContentController(createPageContentService(config));
     const services = createServiceOfferController(createServiceOfferService());
+    const serviceCart = createServiceCartController(config);
     const footerLinks = createFooterQuickLinkController(createFooterQuickLinkService());
 
     router.get('/health', (req, res) => {
@@ -142,6 +145,14 @@ function createApiRouter(config) {
     router.get('/admin/footer-quick-links/:id', authenticate, requirePermission('footerLinks.read'), footerLinks.getAdmin);
     router.patch('/admin/footer-quick-links/:id', authenticate, requirePermission('footerLinks.update'), requireJson, footerLinks.update);
     router.delete('/admin/footer-quick-links/:id', authenticate, requirePermission('footerLinks.delete'), footerLinks.remove);
+
+    router.post('/service-cart/session', limitSensitive, serviceCart.createSession);
+    router.get('/service-cart', optionalAuthenticate, serviceCart.getCart);
+    router.post('/service-cart/items', limitSensitive, optionalAuthenticate, requireJson, serviceCart.addItem);
+    router.patch('/service-cart/items/:lineId', optionalAuthenticate, requireJson, serviceCart.updateItem);
+    router.delete('/service-cart/items/:lineId', optionalAuthenticate, serviceCart.removeItem);
+    router.post('/service-cart/submit', limitSensitive, optionalAuthenticate, requireJson, serviceCart.submit);
+    router.get('/service-cart/confirmation/:id', serviceCart.getConfirmation);
 
     router.get('/services', services.listPublic);
     router.get('/services/:slug', services.getPublic);

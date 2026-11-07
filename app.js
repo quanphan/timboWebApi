@@ -5,6 +5,7 @@ const helmet = require('helmet');
 const { getConfig } = require('./config/env');
 const { createErrorHandler, notFoundHandler } = require('./middleware/errorHandler');
 const { createApiRouter } = require('./routes');
+const { setUploadHeaders } = require('./utils/uploadMime');
 
 function createApp({ config = getConfig() } = {}) {
     const app = express();
@@ -26,7 +27,12 @@ function createApp({ config = getConfig() } = {}) {
         credentials: true,
     }));
     app.use(express.json({ limit: config.jsonBodyLimit }));
-    const staticOptions = { index: false, dotfiles: 'deny', fallthrough: true };
+    const staticOptions = {
+        index: false,
+        dotfiles: 'deny',
+        fallthrough: true,
+        setHeaders: setUploadHeaders,
+    };
     app.use('/uploads', express.static(config.uploadsDir, staticOptions));
     const nestedGallery = path.resolve(config.uploadsDir, 'gallery');
     if (path.resolve(config.galleryDir) !== nestedGallery) {

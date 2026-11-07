@@ -40,6 +40,14 @@ const brandSettingsSchema = new mongoose.Schema({
         other: { type: Boolean, default: true },
         hours: { type: Boolean, default: false },
     },
+    socialContact: {
+        facebookUrl: { type: String, default: 'https://www.facebook.com/phan.quan.353' },
+        facebookMessengerUrl: { type: String, default: 'https://m.me/phan.quan.353' },
+        zaloPhone: { type: String, default: '0903083489' },
+        zaloUrl: { type: String, default: 'https://zalo.me/0903083489' },
+        facebookEnabled: { type: Boolean, default: true },
+        zaloEnabled: { type: Boolean, default: true },
+    },
     hours: {
         en: { type: String, default: '' },
         vi: { type: String, default: '' },

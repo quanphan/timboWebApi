@@ -6,6 +6,7 @@ const bcrypt = require('bcrypt');
 const GalleryPost = require('../models/GalleryPost');
 const User = require('../models/User');
 const { request, startTestApp, stopTestApp } = require('./support/app');
+const { contentTypeForUpload } = require('../utils/uploadMime');
 
 let context;
 let adminToken;
@@ -66,6 +67,14 @@ async function upload(token, bytes, type, filename) {
     const text = await response.text();
     return { status: response.status, body: text ? JSON.parse(text) : null };
 }
+
+test('upload MIME types use browser-safe image and video types', () => {
+    assert.equal(contentTypeForUpload('clip.mp4'), 'video/mp4');
+    assert.equal(contentTypeForUpload('clip.webm'), 'video/webm');
+    assert.equal(contentTypeForUpload('photo.jpg'), 'image/jpeg');
+    assert.equal(contentTypeForUpload('photo.webp'), 'image/webp');
+    assert.equal(contentTypeForUpload('photo.png'), 'image/png');
+});
 
 test('public gallery is empty until a post is published', async () => {
     const response = await request(context.baseUrl, '/api/gallery');
@@ -133,6 +142,17 @@ test('admin can upload gallery files, save drafts, publish, and delete files', a
 
     const fileUrl = await fetch(`${context.baseUrl}${image.body.data.path}`);
     assert.equal(fileUrl.status, 200);
+    assert.match(String(fileUrl.headers.get('content-type') || ''), /^image\/png/i);
+
+    const videoUrl = await fetch(`${context.baseUrl}${video.body.data.path}`);
+    assert.equal(videoUrl.status, 200);
+    assert.match(String(videoUrl.headers.get('content-type') || ''), /^video\/mp4/i);
+    const videoRange = await fetch(`${context.baseUrl}${video.body.data.path}`, {
+        headers: { Range: 'bytes=0-1' },
+    });
+    assert.equal(videoRange.status, 206);
+    assert.match(String(videoRange.headers.get('content-range') || ''), /^bytes 0-1\//i);
+    assert.match(String(videoRange.headers.get('content-type') || ''), /^video\/mp4/i);
 
     const trimmed = await request(context.baseUrl, `/api/admin/gallery/${draft.body.data.id}`, {
         method: 'PATCH',
@@ -167,7 +187,7 @@ test('gallery upload rejects a fake image and a path outside the gallery folder'
     assert.equal(create.status, 422);
 });
 
-test('gallery posts reject more than 5 images, a second video, and mixed media', async () => {
+test('gallery posts reject more than 5 images or 5 videos and allow mixed media', async () => {
     const image = await upload(adminToken, pngBytes, 'image/png', 'one.png');
     const video = await upload(adminToken, mp4Bytes, 'video/mp4', 'clip.mp4');
     assert.equal(image.status, 201);
@@ -185,14 +205,14 @@ test('gallery posts reject more than 5 images, a second video, and mixed media',
     assert.equal(tooManyImages.status, 422);
     assert.equal(tooManyImages.body.error.details[0].code, 'TOO_MANY_IMAGES');
 
-    const twoVideos = [
-        { ...video.body.data, id: 'vid0' },
-        { ...video.body.data, id: 'vid1' },
-    ];
+    const sixVideos = Array.from({ length: 6 }, (_, index) => ({
+        ...video.body.data,
+        id: `vid${index}`,
+    }));
     const tooManyVideos = await request(context.baseUrl, '/api/admin/gallery', {
         method: 'POST',
         token: adminToken,
-        body: { title: 'Too many clips', category: 'video', media: twoVideos },
+        body: { title: 'Too many clips', category: 'video', media: sixVideos },
     });
     assert.equal(tooManyVideos.status, 422);
     assert.equal(tooManyVideos.body.error.details[0].code, 'TOO_MANY_VIDEOS');
@@ -203,9 +223,312 @@ test('gallery posts reject more than 5 images, a second video, and mixed media',
         body: {
             title: 'Mixed',
             category: 'process',
+            status: 'published',
             media: [image.body.data, video.body.data],
         },
     });
-    assert.equal(mixed.status, 422);
-    assert.equal(mixed.body.error.details[0].code, 'MIXED_MEDIA');
+    assert.equal(mixed.status, 201);
+    assert.equal(mixed.body.data.media.length, 2);
+});
+
+test('gallery posts persist original YouTube, Shorts, and Facebook URLs through save, get, and edit', async () => {
+    const cases = [
+        { id: 'yt-watch', title: 'YouTube watch', url: 'https://www.youtube.com/watch?v=dQw4w9WgXcQ', provider: 'youtube', videoId: 'dQw4w9WgXcQ' },
+        { id: 'yt-shorts', title: 'YouTube shorts', url: 'https://www.youtube.com/shorts/dQw4w9WgXcQ', provider: 'youtube', videoId: 'dQw4w9WgXcQ' },
+        { id: 'fb-video', title: 'Facebook video', url: 'https://www.facebook.com/watch/?v=123456789012345', provider: 'facebook', videoId: '123456789012345' },
+        { id: 'fb-reel', title: 'Facebook reel', url: 'https://www.facebook.com/reel/987654321098765', provider: 'facebook', videoId: '987654321098765' },
+        { id: 'fb-page', title: 'Facebook page video', url: 'https://www.facebook.com/PhanQuanGuitars/videos/123456789012345/', provider: 'facebook', videoId: '123456789012345' },
+        { id: 'fb-watch', title: 'fb.watch', url: 'https://fb.watch/abcDE12/', provider: 'facebook', videoId: 'abcDE12' },
+    ];
+
+    for (const item of cases) {
+        const created = await request(context.baseUrl, '/api/admin/gallery', {
+            method: 'POST',
+            token: adminToken,
+            body: {
+                title: item.title,
+                category: 'video',
+                status: 'published',
+                media: [{ id: item.id, kind: 'video', sourceUrl: item.url, url: item.url }],
+            },
+        });
+        assert.equal(created.status, 201, item.title);
+        assert.equal(created.body.data.media[0].sourceUrl, item.url);
+        assert.equal(created.body.data.media[0].url, item.url);
+        assert.equal(created.body.data.media[0].provider, item.provider);
+        assert.equal(created.body.data.media[0].videoId, item.videoId);
+
+        const publicPost = await request(context.baseUrl, `/api/gallery/${created.body.data.id}`);
+        assert.equal(publicPost.status, 200);
+        assert.equal(publicPost.body.data.media[0].sourceUrl, item.url);
+        assert.equal(publicPost.body.data.media[0].provider, item.provider);
+
+        const adminGet = await request(context.baseUrl, `/api/admin/gallery/${created.body.data.id}`, {
+            token: adminToken,
+        });
+        assert.equal(adminGet.body.data.media[0].sourceUrl, item.url);
+
+        const renamed = await request(context.baseUrl, `/api/admin/gallery/${created.body.data.id}`, {
+            method: 'PATCH',
+            token: adminToken,
+            body: {
+                title: `${item.title} updated`,
+                media: adminGet.body.data.media,
+            },
+        });
+        assert.equal(renamed.status, 200);
+        assert.equal(renamed.body.data.title, `${item.title} updated`);
+        assert.equal(renamed.body.data.media[0].sourceUrl, item.url);
+
+        const titleOnly = await request(context.baseUrl, `/api/admin/gallery/${created.body.data.id}`, {
+            method: 'PATCH',
+            token: adminToken,
+            body: { excerpt: 'Keep the video' },
+        });
+        assert.equal(titleOnly.body.data.media[0].sourceUrl, item.url);
+    }
+
+    const posterImage = await upload(adminToken, pngBytes, 'image/png', 'fb-poster.png');
+    assert.equal(posterImage.status, 201);
+    const withPoster = await request(context.baseUrl, '/api/admin/gallery', {
+        method: 'POST',
+        token: adminToken,
+        body: {
+            title: 'Facebook with poster',
+            category: 'video',
+            status: 'published',
+            media: [{
+                id: 'fb-poster',
+                kind: 'video',
+                sourceUrl: 'https://www.facebook.com/reel/987654321098765',
+                url: 'https://www.facebook.com/reel/987654321098765',
+                thumbnail: posterImage.body.data.path,
+            }],
+        },
+    });
+    assert.equal(withPoster.status, 201);
+    assert.equal(withPoster.body.data.media[0].provider, 'facebook');
+    assert.equal(withPoster.body.data.media[0].thumbnail, posterImage.body.data.path);
+    const publicPoster = await request(context.baseUrl, `/api/gallery/${withPoster.body.data.id}`);
+    assert.equal(publicPoster.body.data.media[0].thumbnail, posterImage.body.data.path);
+    const editedPoster = await request(context.baseUrl, `/api/admin/gallery/${withPoster.body.data.id}`, {
+        method: 'PATCH',
+        token: adminToken,
+        body: {
+            title: 'Facebook with poster updated',
+            media: publicPoster.body.data.media,
+        },
+    });
+    assert.equal(editedPoster.status, 200);
+    assert.equal(editedPoster.body.data.media[0].thumbnail, posterImage.body.data.path);
+    assert.equal(editedPoster.body.data.media[0].sourceUrl, 'https://www.facebook.com/reel/987654321098765');
+
+    const iframe = await request(context.baseUrl, '/api/admin/gallery', {
+        method: 'POST',
+        token: adminToken,
+        body: {
+            title: 'Iframe html',
+            category: 'video',
+            media: [{ id: 'iframe', kind: 'video', url: '<iframe src="https://www.youtube.com/embed/dQw4w9WgXcQ"></iframe>' }],
+        },
+    });
+    assert.equal(iframe.status, 422);
+
+    const legacy = await GalleryPost.create({
+        title: 'Legacy youtube path',
+        category: 'video',
+        status: 'published',
+        media: [{
+            id: 'legacy-yt',
+            kind: 'video',
+            path: 'https://www.youtube.com/watch?v=dQw4w9WgXcQ',
+        }],
+    });
+    const legacyPublic = await request(context.baseUrl, `/api/gallery/${legacy._id}`);
+    assert.equal(legacyPublic.status, 200);
+    assert.equal(legacyPublic.body.data.media[0].provider, 'youtube');
+    assert.equal(legacyPublic.body.data.media[0].sourceUrl, 'https://www.youtube.com/watch?v=dQw4w9WgXcQ');
+    assert.equal(legacyPublic.body.data.media[0].videoId, 'dQw4w9WgXcQ');
+});
+
+test('gallery posts accept YouTube, Vimeo, and direct video URLs and reject invalid ones', async () => {
+    const youtube = await request(context.baseUrl, '/api/admin/gallery', {
+        method: 'POST',
+        token: adminToken,
+        body: {
+            title: 'Live session',
+            category: 'video',
+            status: 'published',
+            media: [{
+                id: 'yt1',
+                kind: 'video',
+                url: 'https://www.youtube.com/watch?v=dQw4w9WgXcQ',
+            }],
+        },
+    });
+    assert.equal(youtube.status, 201);
+    assert.equal(youtube.body.data.media[0].provider, 'youtube');
+    assert.equal(youtube.body.data.media[0].videoId, 'dQw4w9WgXcQ');
+
+    const publicPost = await request(context.baseUrl, `/api/gallery/${youtube.body.data.id}`);
+    assert.equal(publicPost.status, 200);
+    assert.equal(publicPost.body.data.media[0].provider, 'youtube');
+
+    const vimeo = await request(context.baseUrl, '/api/admin/gallery', {
+        method: 'POST',
+        token: adminToken,
+        body: {
+            title: 'Workshop film',
+            category: 'video',
+            media: [{ id: 'vm1', kind: 'video', url: 'https://vimeo.com/123456789' }],
+        },
+    });
+    assert.equal(vimeo.status, 201);
+    assert.equal(vimeo.body.data.media[0].provider, 'vimeo');
+
+    const direct = await request(context.baseUrl, '/api/admin/gallery', {
+        method: 'POST',
+        token: adminToken,
+        body: {
+            title: 'Direct clip',
+            category: 'video',
+            media: [{ id: 'd1', kind: 'video', url: 'https://cdn.example.com/session.mp4' }],
+        },
+    });
+    assert.equal(direct.status, 201);
+    assert.equal(direct.body.data.media[0].provider, 'direct');
+
+    const invalid = await request(context.baseUrl, '/api/admin/gallery', {
+        method: 'POST',
+        token: adminToken,
+        body: {
+            title: 'Bad url',
+            category: 'video',
+            media: [{ id: 'bad', kind: 'video', url: 'javascript:alert(1)' }],
+        },
+    });
+    assert.equal(invalid.status, 422);
+
+    const page = await request(context.baseUrl, '/api/admin/gallery', {
+        method: 'POST',
+        token: adminToken,
+        body: {
+            title: 'Not a video file',
+            category: 'video',
+            media: [{ id: 'page', kind: 'video', url: 'https://example.com/about' }],
+        },
+    });
+    assert.equal(page.status, 422);
+});
+
+test('published gallery posts appear on home only when showAtHome is saved as true', async () => {
+    const image = await upload(adminToken, pngBytes, 'image/png', 'home.png');
+    assert.equal(image.status, 201);
+    const created = await request(context.baseUrl, '/api/admin/gallery', {
+        method: 'POST',
+        token: adminToken,
+        body: {
+            title: 'Bench light',
+            excerpt: 'A quiet morning in the shop.',
+            category: 'process',
+            status: 'published',
+            media: [image.body.data],
+        },
+    });
+    assert.equal(created.status, 201);
+    assert.equal(created.body.data.showAtHome, false);
+
+    const hidden = await request(context.baseUrl, '/api/gallery?showAtHome=true');
+    assert.equal(hidden.status, 200);
+    assert.equal(hidden.body.data.some((item) => item.id === created.body.data.id), false);
+
+    const enabled = await request(context.baseUrl, `/api/admin/gallery/${created.body.data.id}`, {
+        method: 'PATCH',
+        token: adminToken,
+        body: { showAtHome: true },
+    });
+    assert.equal(enabled.status, 200);
+    assert.equal(enabled.body.data.showAtHome, true);
+
+    const home = await request(context.baseUrl, '/api/gallery?showAtHome=true');
+    assert.equal(home.body.data.some((item) => item.id === created.body.data.id), true);
+    assert.equal(home.body.data.find((item) => item.id === created.body.data.id).excerpt, 'A quiet morning in the shop.');
+
+    const detail = await request(context.baseUrl, `/api/gallery/${created.body.data.id}`);
+    assert.equal(detail.status, 200);
+    assert.equal(detail.body.data.title, 'Bench light');
+
+    const disabled = await request(context.baseUrl, `/api/admin/gallery/${created.body.data.id}`, {
+        method: 'PATCH',
+        token: adminToken,
+        body: { showAtHome: false },
+    });
+    assert.equal(disabled.body.data.showAtHome, false);
+    const after = await request(context.baseUrl, '/api/gallery?showAtHome=true');
+    assert.equal(after.body.data.some((item) => item.id === created.body.data.id), false);
+
+    const draftHome = await request(context.baseUrl, '/api/admin/gallery', {
+        method: 'POST',
+        token: adminToken,
+        body: {
+            title: 'Unpublished home draft',
+            category: 'process',
+            status: 'draft',
+            showAtHome: true,
+        },
+    });
+    assert.equal(draftHome.status, 201);
+    const publicHome = await request(context.baseUrl, '/api/gallery?showAtHome=true');
+    assert.equal(publicHome.body.data.some((item) => item.id === draftHome.body.data.id), false);
+});
+
+test('art-of-making is a valid gallery category and stays independent from showAtHome', async () => {
+    const created = await request(context.baseUrl, '/api/admin/gallery', {
+        method: 'POST',
+        token: adminToken,
+        body: {
+            title: 'From the bench',
+            excerpt: 'Craft in progress.',
+            category: 'art-of-making',
+            status: 'published',
+        },
+    });
+    assert.equal(created.status, 201);
+    assert.equal(created.body.data.category, 'art-of-making');
+    assert.equal(created.body.data.showAtHome, false);
+
+    const filtered = await request(context.baseUrl, '/api/gallery?category=art-of-making');
+    assert.equal(filtered.status, 200);
+    assert.equal(filtered.body.data.some((item) => item.id === created.body.data.id), true);
+
+    const processOnly = await request(context.baseUrl, '/api/gallery?category=process');
+    assert.equal(processOnly.body.data.some((item) => item.id === created.body.data.id), false);
+
+    const home = await request(context.baseUrl, '/api/gallery?showAtHome=true');
+    assert.equal(home.body.data.some((item) => item.id === created.body.data.id), false);
+
+    const enabled = await request(context.baseUrl, `/api/admin/gallery/${created.body.data.id}`, {
+        method: 'PATCH',
+        token: adminToken,
+        body: { showAtHome: true },
+    });
+    assert.equal(enabled.status, 200);
+    assert.equal(enabled.body.data.category, 'art-of-making');
+    assert.equal(enabled.body.data.showAtHome, true);
+
+    const otherHome = await request(context.baseUrl, '/api/admin/gallery', {
+        method: 'POST',
+        token: adminToken,
+        body: {
+            title: 'Finish detail',
+            category: 'finish',
+            status: 'published',
+            showAtHome: true,
+        },
+    });
+    assert.equal(otherHome.status, 201);
+    assert.equal(otherHome.body.data.category, 'finish');
+    const homeBoth = await request(context.baseUrl, '/api/gallery?showAtHome=true');
+    assert.equal(homeBoth.body.data.some((item) => item.id === created.body.data.id), true);
+    assert.equal(homeBoth.body.data.some((item) => item.id === otherHome.body.data.id), true);
 });

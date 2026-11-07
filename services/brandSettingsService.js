@@ -5,7 +5,19 @@ const { cleanString } = require('../utils/text');
 
 const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const PHONE_PATTERN = /^[+0-9()\s.-]{6,40}$/;
-const BODY_KEYS = new Set(['contact', 'workshops', 'display', 'hours']);
+const BODY_KEYS = new Set(['contact', 'workshops', 'display', 'hours', 'socialContact']);
+const SOCIAL_KEYS = new Set([
+    'facebookUrl',
+    'facebookMessengerUrl',
+    'zaloPhone',
+    'zaloUrl',
+    'facebookEnabled',
+    'zaloEnabled',
+]);
+const DEFAULT_FACEBOOK_URL = 'https://www.facebook.com/phan.quan.353';
+const DEFAULT_FACEBOOK_MESSENGER_URL = 'https://m.me/phan.quan.353';
+const DEFAULT_ZALO_PHONE = '0903083489';
+const DEFAULT_ZALO_URL = 'https://zalo.me/0903083489';
 const CONTACT_KEYS = ['email', 'phone', 'whatsapp', 'facebook', 'instagram', 'youtube', 'other'];
 const DISPLAY_KEYS = [...CONTACT_KEYS, 'hours'];
 const WORKSHOP_SLOTS = ['workshop1', 'workshop2'];
@@ -25,6 +37,10 @@ const LIMITS = {
     mapsUrl: 500,
     note: 400,
     hours: 400,
+    facebookUrl: 500,
+    facebookMessengerUrl: 500,
+    zaloPhone: 40,
+    zaloUrl: 500,
 };
 
 function emptyWorkshop() {
@@ -66,6 +82,22 @@ function emptyHours() {
     return { en: '', vi: '' };
 }
 
+function emptySocialContact() {
+    return {
+        facebookUrl: DEFAULT_FACEBOOK_URL,
+        facebookMessengerUrl: DEFAULT_FACEBOOK_MESSENGER_URL,
+        zaloPhone: DEFAULT_ZALO_PHONE,
+        zaloUrl: DEFAULT_ZALO_URL,
+        facebookEnabled: true,
+        zaloEnabled: true,
+    };
+}
+
+function zaloHref(phone) {
+    const digits = String(phone || '').replace(/[^\d]/g, '');
+    return digits ? `https://zalo.me/${digits}` : '';
+}
+
 function emptyAdmin() {
     return {
         contact: emptyContact(),
@@ -75,6 +107,7 @@ function emptyAdmin() {
         },
         display: emptyDisplay(),
         hours: emptyHours(),
+        socialContact: emptySocialContact(),
         updatedAt: null,
         updatedBy: null,
     };
@@ -91,6 +124,12 @@ function emptyPublic() {
         other: null,
         hours: null,
         workshops: [],
+        socialContact: {
+            facebookUrl: null,
+            facebookMessengerUrl: null,
+            zaloPhone: null,
+            zaloUrl: null,
+        },
     };
 }
 
@@ -227,10 +266,46 @@ function validateUpdate(body) {
         vi: optionalText(hoursSource.vi, LIMITS.hours, 'hours.vi', errors),
     };
 
+    const defaultsSocial = emptySocialContact();
+    const socialSource = body.socialContact && typeof body.socialContact === 'object' && !Array.isArray(body.socialContact)
+        ? body.socialContact
+        : defaultsSocial;
+    rejectUnknownKeys(socialSource, SOCIAL_KEYS, 'socialContact', errors);
+    const zaloPhone = optionalPhone(
+        socialSource.zaloPhone === undefined ? defaultsSocial.zaloPhone : socialSource.zaloPhone,
+        'socialContact.zaloPhone',
+        errors,
+    );
+    const socialContact = {
+        facebookUrl: optionalUrl(
+            socialSource.facebookUrl === undefined ? defaultsSocial.facebookUrl : socialSource.facebookUrl,
+            LIMITS.facebookUrl,
+            'socialContact.facebookUrl',
+            errors,
+        ),
+        facebookMessengerUrl: optionalUrl(
+            socialSource.facebookMessengerUrl === undefined
+                ? defaultsSocial.facebookMessengerUrl
+                : socialSource.facebookMessengerUrl,
+            LIMITS.facebookMessengerUrl,
+            'socialContact.facebookMessengerUrl',
+            errors,
+        ),
+        zaloPhone,
+        zaloUrl: optionalUrl(
+            socialSource.zaloUrl === undefined ? (zaloHref(zaloPhone) || defaultsSocial.zaloUrl) : socialSource.zaloUrl,
+            LIMITS.zaloUrl,
+            'socialContact.zaloUrl',
+            errors,
+        ),
+        facebookEnabled: readBoolean(socialSource.facebookEnabled, true),
+        zaloEnabled: readBoolean(socialSource.zaloEnabled, true),
+    };
+
     if (errors.length) {
         throw new ApiError(422, 'VALIDATION_ERROR', 'Brand settings are invalid.', errors);
     }
-    return { contact, workshops, display, hours };
+    return { contact, workshops, display, hours, socialContact };
 }
 
 function presentWorkshop(workshop) {
@@ -278,14 +353,51 @@ function presentAdmin(doc) {
             en: hours.en || '',
             vi: hours.vi || '',
         },
+        socialContact: presentSocial(doc),
         updatedAt: doc.updatedAt ? new Date(doc.updatedAt).toISOString() : null,
         updatedBy: doc.updatedBy ? String(doc.updatedBy) : null,
     };
 }
 
+function presentSocial(doc) {
+    const defaults = emptySocialContact();
+    if (!doc || !doc.socialContact) return defaults;
+    const source = doc.socialContact.toObject ? doc.socialContact.toObject() : doc.socialContact;
+    return {
+        facebookUrl: source.facebookUrl || '',
+        facebookMessengerUrl:
+            source.facebookMessengerUrl === undefined || source.facebookMessengerUrl === null
+                ? defaults.facebookMessengerUrl
+                : source.facebookMessengerUrl || '',
+        zaloPhone: source.zaloPhone || '',
+        zaloUrl:
+            source.zaloUrl === undefined || source.zaloUrl === null
+                ? zaloHref(source.zaloPhone) || defaults.zaloUrl
+                : source.zaloUrl || '',
+        facebookEnabled: source.facebookEnabled !== false,
+        zaloEnabled: source.zaloEnabled !== false,
+    };
+}
+
+function presentPublicSocial(social) {
+    const facebookOn = social.facebookEnabled !== false;
+    const zaloOn = social.zaloEnabled !== false;
+    const zaloPhone = zaloOn && social.zaloPhone ? social.zaloPhone : null;
+    const zaloUrl = zaloOn ? social.zaloUrl || zaloHref(zaloPhone) || null : null;
+    return {
+        facebookUrl: facebookOn && social.facebookUrl ? social.facebookUrl : null,
+        facebookMessengerUrl: facebookOn && social.facebookMessengerUrl ? social.facebookMessengerUrl : null,
+        zaloPhone,
+        zaloUrl: zaloUrl || null,
+    };
+}
+
 function presentPublic(doc) {
     const publicData = emptyPublic();
-    if (!doc) return publicData;
+    if (!doc) {
+        publicData.socialContact = presentPublicSocial(emptySocialContact());
+        return publicData;
+    }
     const admin = presentAdmin(doc);
     CONTACT_KEYS.forEach((key) => {
         if (admin.display[key] && admin.contact[key]) {
@@ -307,6 +419,7 @@ function presentPublic(doc) {
             mapsUrl: workshop.mapsUrl || null,
             note: workshop.note || null,
         }));
+    publicData.socialContact = presentPublicSocial(admin.socialContact);
     return publicData;
 }
 
@@ -332,6 +445,7 @@ function createBrandSettingsService() {
                         workshops: input.workshops,
                         display: input.display,
                         hours: input.hours,
+                        socialContact: input.socialContact,
                         updatedAt: new Date(),
                         updatedBy: user && user._id ? user._id : null,
                     },
@@ -348,5 +462,7 @@ module.exports = {
     createBrandSettingsService,
     emptyAdmin,
     emptyPublic,
+    emptySocialContact,
+    zaloHref,
     SETTINGS_KEY,
 };

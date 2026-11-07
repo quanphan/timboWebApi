@@ -90,6 +90,10 @@ test('GET /api/brand-settings/public returns empty defaults before configuration
     assert.equal(response.body.data.phone, null);
     assert.deepEqual(response.body.data.workshops, []);
     assert.equal(response.body.data.hours, null);
+    assert.equal(response.body.data.socialContact.facebookUrl, 'https://www.facebook.com/phan.quan.353');
+    assert.equal(response.body.data.socialContact.facebookMessengerUrl, 'https://m.me/phan.quan.353');
+    assert.equal(response.body.data.socialContact.zaloPhone, '0903083489');
+    assert.equal(response.body.data.socialContact.zaloUrl, 'https://zalo.me/0903083489');
     assert.equal(response.body.data.updatedBy, undefined);
     assert.equal(response.body.data.key, undefined);
     assert.equal(response.body.data.display, undefined);
@@ -144,8 +148,39 @@ test('admin PUT persists a singleton document and public GET hides disabled fiel
     assert.equal(publicResponse.body.data.hours.en, 'Tue–Sat, 10:00–18:00');
     assert.equal(publicResponse.body.data.workshops.length, 1);
     assert.equal(publicResponse.body.data.workshops[0].name, 'Hanoi workshop');
+    assert.equal(publicResponse.body.data.socialContact.facebookUrl, 'https://www.facebook.com/phan.quan.353');
+    assert.equal(publicResponse.body.data.socialContact.facebookMessengerUrl, 'https://m.me/phan.quan.353');
+    assert.equal(publicResponse.body.data.socialContact.zaloUrl, 'https://zalo.me/0903083489');
     assert.equal(publicResponse.body.data.updatedBy, undefined);
     assert.equal(publicResponse.body.data.display, undefined);
+    assert.equal(publicResponse.body.data.socialContact.facebookEnabled, undefined);
+});
+
+test('admin can disable cart social channels without changing public footer facebook', async () => {
+    const saved = await request(context.baseUrl, '/api/brand-settings/admin', {
+        method: 'PUT',
+        token: adminToken,
+        body: {
+            ...sample,
+            socialContact: {
+                facebookUrl: 'https://www.facebook.com/phan.quan.353',
+                facebookMessengerUrl: 'https://m.me/phan.quan.353',
+                zaloPhone: '0903083489',
+                zaloUrl: 'https://zalo.me/0903083489',
+                facebookEnabled: false,
+                zaloEnabled: true,
+            },
+        },
+    });
+    assert.equal(saved.status, 200);
+    assert.equal(saved.body.data.socialContact.facebookEnabled, false);
+    assert.equal(saved.body.data.contact.facebook, 'https://facebook.com/phanquanguitars');
+
+    const publicResponse = await request(context.baseUrl, '/api/brand-settings/public');
+    assert.equal(publicResponse.body.data.facebook, 'https://facebook.com/phanquanguitars');
+    assert.equal(publicResponse.body.data.socialContact.facebookUrl, null);
+    assert.equal(publicResponse.body.data.socialContact.facebookMessengerUrl, null);
+    assert.equal(publicResponse.body.data.socialContact.zaloUrl, 'https://zalo.me/0903083489');
 });
 
 test('PUT /api/brand-settings/admin rejects invalid URLs and unknown fields', async () => {

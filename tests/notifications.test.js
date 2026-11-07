@@ -92,6 +92,7 @@ describe('admin notifications', { concurrency: false }, () => {
         });
         assert.equal(created.received, true);
         assert.equal(sent.length, 1);
+        assert.equal(sent[0].to, 'admin@example.com');
         assert.match(sent[0].text, /Event: contact message/);
         assert.match(sent[0].text, /Name: Lan Pham/);
         assert.match(sent[0].text, /Email: lan@example.com/);
@@ -155,18 +156,81 @@ describe('admin notifications', { concurrency: false }, () => {
         const replay = await service.createInquiry(inquiryPayload());
         assert.equal(created.id, replay.id);
         assert.equal(created.status, 'received');
-        assert.equal(sent.length, 1);
-        assert.match(sent[0].text, /Event: custom build inquiry/);
-        assert.match(sent[0].text, /series: series.classic/);
-        assert.match(sent[0].text, /draftId=draft-12345678/);
-        assert.match(sent[0].text, new RegExp(IMAGE_PATH.replace(/\//g, '\\/')));
-        assert.match(sent[0].text, /https:\/\/api\.example\/uploads\/custom-build\//);
-        assert.match(sent[0].text, new RegExp(`https://phanquanguitars.com/admin/inquiries/${created.id}`));
-        assert.equal(sent[0].text.includes('/api/admin/'), false);
-        assert.equal(sent[0].text.includes('lan@example.com?'), false);
-        assert.equal(sent[0].html.includes('<script'), false);
+        assert.equal(sent.length, 2);
+        const workshop = sent.find((item) => item.to === 'admin@example.com');
+        const customer = sent.find((item) => item.to === 'lan@example.com');
+        assert.equal(Boolean(workshop), true);
+        assert.equal(Boolean(customer), true);
+        assert.match(workshop.text, /Event: custom build inquiry/);
+        assert.match(workshop.text, /Inquiry ID:/);
+        assert.match(workshop.text, /series: series.classic/);
+        assert.match(workshop.text, /draftId=draft-12345678/);
+        assert.match(workshop.text, new RegExp(IMAGE_PATH.replace(/\//g, '\\/')));
+        assert.match(workshop.text, /https:\/\/api\.example\/uploads\/custom-build\//);
+        assert.match(workshop.text, new RegExp(`https://phanquanguitars.com/admin/inquiries/${created.id}`));
+        assert.equal(workshop.text.includes('/api/admin/'), false);
+        assert.match(customer.text, /Thank you for your custom guitar inquiry/);
+        assert.match(customer.text, /not a confirmed order or a final quotation/);
+        assert.match(customer.text, new RegExp(`Inquiry ID: ${created.id}`));
+        assert.match(customer.text, /Series: Classic/);
+        assert.match(customer.text, new RegExp(IMAGE_PATH.replace(/\//g, '\\/')));
+        assert.equal(customer.text.includes('Admin path:'), false);
+        assert.equal(customer.text.includes('lan@example.com?'), false);
+        assert.equal(workshop.html.includes('<script'), false);
         const stored = await CustomBuildInquiry.countDocuments({ id: created.id });
         assert.equal(stored, 1);
+    });
+
+    it('uses Vietnamese customer copy when the inquiry language is vi', async () => {
+        const sent = [];
+        const service = inquiryService(notificationsFor(sent));
+        const created = await service.createInquiry({
+            customer: { name: 'Lan Pham', email: 'lan-vi@example.com', phone: '0901234567' },
+            configuration: {
+                selections: {
+                    'instrument-type': 'instrument-type.solid-body-electric',
+                    series: 'series.classic',
+                    'body-shape': 'body-shape.double-cut',
+                    scale: '25.5',
+                    'string-count': '6',
+                },
+                notes: 'language=vi\ncountry=Vietnam\nwizard:\ninstrumentTypeId=electric-guitar\nseriesId=classic\nshapeId=double-cut\nscaleId=25.5\nstringCount=6',
+            },
+            message: 'Muon dan 25.5.',
+        });
+        const customer = sent.find((item) => item.to === 'lan-vi@example.com');
+        assert.equal(created.status, 'received');
+        assert.match(customer.text, /Cảm ơn bạn đã gửi yêu cầu custom guitar đến PhanQuan Guitars/);
+        assert.match(customer.text, /Đây là yêu cầu custom, chưa phải xác nhận đơn hàng hoặc báo giá cuối cùng/);
+        assert.equal(customer.text.includes('Thank you for your custom guitar inquiry'), false);
+        assert.match(customer.text, /Loại nhạc cụ: Electric Guitar/);
+        assert.match(customer.text, /Series: Classic/);
+        assert.match(customer.text, /Dáng thân: Double Cut/);
+        assert.match(customer.text, /Chiều dài scale: 25\.5/);
+        assert.match(customer.text, /Số dây: 6/);
+        assert.equal((customer.text.match(/Loại nhạc cụ:/g) || []).length, 1);
+        assert.match(customer.text, /Muon dan 25.5/);
+    });
+
+    it('keeps a saved custom-build inquiry when the email provider fails', async () => {
+        const sent = [];
+        const errors = [];
+        const original = console.error;
+        console.error = (line) => errors.push(String(line));
+        try {
+            const service = inquiryService(notificationsFor(sent, { failTimes: 2 }));
+            const created = await service.createInquiry({
+                customer: { name: 'Minh', email: 'minh-build@example.com', phone: '0900000000' },
+                configuration: { selections: { series: 'series.classic' }, notes: 'language=en' },
+                message: 'Need a quote',
+            });
+            assert.equal(typeof created.id, 'string');
+            assert.equal(await CustomBuildInquiry.countDocuments({ id: created.id }), 1);
+            assert.equal(sent.some((item) => item && item.subject), false);
+            assert.match(errors.join('\n'), /Admin notification failed/);
+        } finally {
+            console.error = original;
+        }
     });
 
     it('does not email or save when the inquiry is invalid', async () => {
@@ -193,6 +257,101 @@ describe('admin notifications', { concurrency: false }, () => {
         });
         assert.equal(created.received, true);
         assert.equal(called, false);
+    });
+
+    it('emails a service-cart inquiry to the workshop and the customer once', async () => {
+        const sent = [];
+        const notifications = notificationsFor(sent);
+        const record = {
+            id: 'inq_cart_mail',
+            submissionKey: 'service-cart:sess-mail',
+            createdAt: new Date('2026-11-07T00:00:00.000Z'),
+            customer: { name: 'Lan Pham', email: 'lan@example.com', phone: '+84901234567' },
+            configuration: {
+                notes: 'Please call in the evening.',
+                selections: {
+                    inquiryKind: 'service-cart',
+                    country: 'Vietnam',
+                    quotationRequired: false,
+                    subtotal: 60,
+                    items: [{
+                        titleEn: 'Setup',
+                        categoryNameEn: 'Guitar Repair',
+                        quantity: 1,
+                        unitPrice: 60,
+                        lineTotal: 60,
+                        currency: 'USD',
+                        indicative: true,
+                        options: [{ groupNameEn: 'Scope', labelEn: 'Full' }],
+                    }],
+                },
+            },
+        };
+        await CustomBuildInquiry.create({
+            id: record.id,
+            status: 'received',
+            customer: record.customer,
+            configuration: record.configuration,
+            message: record.configuration.notes,
+            submissionKey: record.submissionKey,
+        });
+        const first = await notifications.notifyServiceCart(record);
+        const replay = await notifications.notifyServiceCart(record);
+        assert.equal(first.workshop.sent, true);
+        assert.equal(first.customer.sent, true);
+        assert.equal(replay.workshop.reason, 'duplicate');
+        assert.equal(replay.customer.reason, 'duplicate');
+        assert.equal(sent.length, 2);
+
+        const workshop = sent.find((item) => item.to === 'admin@example.com');
+        const customer = sent.find((item) => item.to === 'lan@example.com');
+        assert.equal(Boolean(workshop), true);
+        assert.equal(Boolean(customer), true);
+        assert.match(workshop.text, /Event: service cart quotation/);
+        assert.match(workshop.text, /Inquiry ID: inq_cart_mail/);
+        assert.match(workshop.text, /Setup \(Guitar Repair\)/);
+        assert.match(workshop.text, /Scope: Full/);
+        assert.match(workshop.text, /Quantity: 1/);
+        assert.match(workshop.text, /Reference price: 60 USD/);
+        assert.match(workshop.text, /Admin path: \/admin\/inquiries\/inq_cart_mail/);
+        assert.match(customer.text, /Inquiry ID: inq_cart_mail/);
+        assert.match(customer.text, /Name: Lan Pham/);
+        assert.match(customer.text, /We have received your request and will contact you shortly via email or phone to discuss the details and provide a quotation\./);
+        assert.match(customer.text, /Chúng tôi đã nhận được yêu cầu của bạn và sẽ sớm liên hệ qua email hoặc điện thoại để trao đổi và gửi báo giá chi tiết\./);
+        assert.equal(customer.text.includes('Admin path:'), false);
+        assert.equal(customer.text.includes('re_test_key'), false);
+        assert.equal(await CustomBuildInquiry.countDocuments({ id: record.id }), 1);
+    });
+
+    it('keeps a saved service-cart inquiry when the email provider fails', async () => {
+        const sent = [];
+        const errors = [];
+        const original = console.error;
+        console.error = (line) => errors.push(String(line));
+        try {
+            const notifications = notificationsFor(sent, { failTimes: 2 });
+            const record = {
+                id: 'inq_cart_fail',
+                submissionKey: 'service-cart:sess-fail',
+                customer: { name: 'Minh', email: 'minh-cart@example.com', phone: '0900000000' },
+                configuration: { selections: { inquiryKind: 'service-cart', items: [] } },
+            };
+            await CustomBuildInquiry.create({
+                id: record.id,
+                status: 'received',
+                customer: record.customer,
+                configuration: record.configuration,
+                submissionKey: record.submissionKey,
+            });
+            const result = await notifications.notifyServiceCart(record);
+            assert.equal(result.workshop.sent, false);
+            assert.equal(result.customer.sent, false);
+            assert.equal(await CustomBuildInquiry.countDocuments({ id: record.id }), 1);
+            assert.equal(sent.some((item) => item && item.subject), false);
+            assert.match(errors.join('\n'), /Admin notification failed/);
+        } finally {
+            console.error = original;
+        }
     });
 
     it('reads email settings without accepting a public base URL that carries secrets', () => {

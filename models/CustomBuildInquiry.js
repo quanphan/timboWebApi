@@ -36,6 +36,7 @@ const customBuildInquirySchema = new mongoose.Schema({
     },
     draftId: { type: String, default: null, maxlength: 80 },
     submissionKey: { type: String, required: true, unique: true, sparse: true },
+    confirmationTokenHash: { type: String, default: null, maxlength: 64 },
 }, {
     collection: 'custom_build_inquiries',
     timestamps: true,
@@ -44,5 +45,6 @@ const customBuildInquirySchema = new mongoose.Schema({
 customBuildInquirySchema.index({ draftId: 1 });
 customBuildInquirySchema.index({ createdAt: -1, id: 1 });
 customBuildInquirySchema.index({ status: 1, createdAt: -1 });
+customBuildInquirySchema.index({ confirmationTokenHash: 1 }, { sparse: true });
 
 module.exports = mongoose.model('CustomBuildInquiry', customBuildInquirySchema);

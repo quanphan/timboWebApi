@@ -179,6 +179,15 @@ function validateMessage(message, errors) {
     return trimmed || null;
 }
 
+async function notifyInquiry(notify, record) {
+    if (!record || typeof notify?.notifyCustomBuild !== 'function') return;
+    try {
+        await notify.notifyCustomBuild(record);
+    } catch {
+        // Email failures must not undo a saved inquiry.
+    }
+}
+
 function createInquiryService({
     CustomBuildInquiry,
     validationService,
@@ -227,7 +236,7 @@ function createInquiryService({
             const draftId = extractDraftId(configuration && configuration.notes);
             const existing = await CustomBuildInquiry.findOne({ submissionKey });
             if (existing) {
-                await notify.notifyCustomBuild(existing);
+                await notifyInquiry(notify, existing);
                 return toPublicInquiry(existing);
             }
 
@@ -242,13 +251,13 @@ function createInquiryService({
                     draftId,
                     submissionKey,
                 });
-                await notify.notifyCustomBuild(record);
+                await notifyInquiry(notify, record);
                 return toPublicInquiry(record);
             } catch (error) {
                 if (error && (error.code === 11000 || error.code === 11001)) {
                     const raced = await CustomBuildInquiry.findOne({ submissionKey });
                     if (raced) {
-                        await notify.notifyCustomBuild(raced);
+                        await notifyInquiry(notify, raced);
                         return toPublicInquiry(raced);
                     }
                 }
