@@ -292,6 +292,24 @@ function hasPublishedContent(doc) {
     return en > 0 || vi > 0;
 }
 
+function localeHasContent(locale) {
+    const value = presentLocale(locale);
+    return Boolean(value.title) || value.sections.length > 0;
+}
+
+function workingLocale(draftLocale, publishedLocale) {
+    const draft = presentLocale(draftLocale);
+    if (localeHasContent(draft)) return draft;
+    return presentLocale(publishedLocale);
+}
+
+function workingLocales(draft, published) {
+    return {
+        en: workingLocale(draft && draft.en, published && published.en),
+        vi: workingLocale(draft && draft.vi, published && published.vi),
+    };
+}
+
 function presentPublic(doc) {
     if (!hasPublishedContent(doc)) return null;
     return {
@@ -359,6 +377,16 @@ async function getAdmin(pageKey) {
     return presentAdmin(doc, key);
 }
 
+async function getPreview(pageKey) {
+    const admin = await getAdmin(pageKey);
+    return {
+        pageKey: admin.pageKey,
+        revision: admin.revision,
+        locales: workingLocales(admin.draft, admin.published),
+        preview: true,
+    };
+}
+
 async function saveDraft(pageKey, body, user) {
     const key = assertPageKey(pageKey);
     if (!body || typeof body !== 'object' || Array.isArray(body)) {
@@ -390,10 +418,7 @@ async function saveDraft(pageKey, body, user) {
         return presentAdmin(created, key);
     }
 
-    const draft = {
-        en: presentLocale(doc.draft && doc.draft.en),
-        vi: presentLocale(doc.draft && doc.draft.vi),
-    };
+    const draft = workingLocales(doc.draft, doc.published);
     draft[language] = locale;
     doc.draft = draft;
     doc.revision = (doc.revision || 1) + 1;
@@ -409,15 +434,15 @@ async function publish(pageKey, body, user) {
         throw new ApiError(404, 'NOT_FOUND', 'Save a draft before publishing.');
     }
     assertRevision(doc, body && body.expectedRevision);
-    const draft = presentLocales(doc.draft);
-    if (draft.en.sections.length === 0 && draft.vi.sections.length === 0) {
+    const next = workingLocales(doc.draft, doc.published);
+    if (next.en.sections.length === 0 && next.vi.sections.length === 0) {
         throw new ApiError(422, 'VALIDATION_ERROR', 'Page content is invalid.', [{
             field: 'sections',
             code: 'REQUIRED',
             message: 'Add at least one section before publishing.',
         }]);
     }
-    doc.published = draft;
+    doc.published = next;
     doc.publishedAt = new Date();
     doc.publishedBy = actorId(user);
     doc.updatedBy = actorId(user);
@@ -547,6 +572,7 @@ module.exports = {
         return {
             getPublic,
             getAdmin,
+            getPreview,
             saveDraft,
             publish,
             revert,

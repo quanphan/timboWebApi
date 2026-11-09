@@ -17,13 +17,7 @@ function createPageContentController(service) {
         }),
         preview: asyncHandler(async (req, res) => {
             noStore(res);
-            const admin = await service.getAdmin(req.params.pageKey);
-            sendData(res, {
-                pageKey: admin.pageKey,
-                revision: admin.revision,
-                locales: admin.draft,
-                preview: true,
-            });
+            sendData(res, await service.getPreview(req.params.pageKey));
         }),
         saveDraft: asyncHandler(async (req, res) => {
             noStore(res);

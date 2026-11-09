@@ -525,6 +525,72 @@ test('services page stores independent image slots and publishes them', async ()
     assert.equal(live.body.data.locales.en.sections[0].imageSecondary, right);
 });
 
+test('empty draft still previews published locales and does not wipe them on publish', async () => {
+    const publishedVi = {
+        title: 'Gioi thieu',
+        sections: [{
+            id: 'about-hero',
+            type: 'hero',
+            title: 'Gioi thieu',
+            body: 'Noi dung da xuat ban',
+            layout: 'center',
+        }],
+    };
+    await PageContent.updateOne(
+        { pageKey: 'about' },
+        {
+            $set: {
+                revision: 20,
+                draft: { en: { title: '', sections: [] }, vi: { title: '', sections: [] } },
+                published: { en: { title: '', sections: [] }, vi: publishedVi },
+                publishedAt: new Date(),
+            },
+        },
+        { upsert: true },
+    );
+
+    const admin = await request(context.baseUrl, '/api/admin/page-content/about', { token: adminToken });
+    assert.equal(admin.status, 200);
+    assert.equal(admin.body.data.exists, true);
+    assert.equal(admin.body.data.draft.vi.sections.length, 0);
+    assert.equal(admin.body.data.published.vi.title, 'Gioi thieu');
+
+    const previewResponse = await fetch(`${context.baseUrl}/api/admin/page-content/about/preview`, {
+        headers: { Authorization: `Bearer ${adminToken}` },
+    });
+    const previewBody = await previewResponse.json();
+    assert.equal(previewResponse.status, 200);
+    assert.equal(previewBody.data.locales.vi.title, 'Gioi thieu');
+    assert.equal(previewBody.data.locales.vi.sections.length, 1);
+
+    const live = await request(context.baseUrl, '/api/pages/about');
+    assert.equal(live.body.data.locales.vi.title, 'Gioi thieu');
+    assert.equal(live.body.data.locales.en.sections.length, 0);
+
+    const saved = await request(context.baseUrl, '/api/admin/page-content/about/draft', {
+        method: 'PUT',
+        token: adminToken,
+        body: {
+            language: 'en',
+            expectedRevision: admin.body.data.revision,
+            locale: sampleLocale,
+        },
+    });
+    assert.equal(saved.status, 200);
+    assert.equal(saved.body.data.draft.en.title, 'About PhanQuan');
+    assert.equal(saved.body.data.draft.vi.title, 'Gioi thieu');
+
+    const published = await request(context.baseUrl, '/api/admin/page-content/about/publish', {
+        method: 'POST',
+        token: adminToken,
+        body: { expectedRevision: saved.body.data.revision },
+    });
+    assert.equal(published.status, 200);
+    const after = await request(context.baseUrl, '/api/pages/about');
+    assert.equal(after.body.data.locales.vi.title, 'Gioi thieu');
+    assert.equal(after.body.data.locales.en.title, 'About PhanQuan');
+});
+
 test('contact page stores the hero image and publishes it', async () => {
     async function uploadPng() {
         const form = new FormData();
