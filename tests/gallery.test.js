@@ -707,6 +707,70 @@ test('gallery pin sorts first, patches independently, and paginates after sort',
     assert.equal(customer.status, 403);
 });
 
+test('gallery posts store bilingual translations and keep legacy title as Vietnamese fallback', async () => {
+    const created = await request(context.baseUrl, '/api/admin/gallery', {
+        method: 'POST',
+        token: adminToken,
+        body: {
+            category: 'process',
+            status: 'published',
+            translations: {
+                vi: { title: 'Bài VI', excerpt: 'Mô tả VI', content: 'Nội dung VI' },
+                en: { title: 'Post EN', excerpt: 'Excerpt EN', content: 'Content EN' },
+            },
+        },
+    });
+    assert.equal(created.status, 201);
+    assert.equal(created.body.data.title, 'Bài VI');
+    assert.equal(created.body.data.translations.vi.title, 'Bài VI');
+    assert.equal(created.body.data.translations.en.title, 'Post EN');
+
+    const publicPost = await request(context.baseUrl, `/api/gallery/${created.body.data.id}`);
+    assert.equal(publicPost.status, 200);
+    assert.equal(publicPost.body.data.translations.en.content, 'Content EN');
+    assert.equal(publicPost.body.data.title, 'Bài VI');
+
+    const legacy = await request(context.baseUrl, '/api/admin/gallery', {
+        method: 'POST',
+        token: adminToken,
+        body: {
+            title: 'Chỉ tiếng Việt',
+            excerpt: 'Mô tả cũ',
+            content: 'Nội dung cũ',
+            category: 'finish',
+            status: 'published',
+        },
+    });
+    assert.equal(legacy.status, 201);
+    assert.equal(legacy.body.data.title, 'Chỉ tiếng Việt');
+    assert.equal(legacy.body.data.translations.vi.title, 'Chỉ tiếng Việt');
+    assert.equal(legacy.body.data.translations.en.title, '');
+
+    const reopened = await request(context.baseUrl, `/api/admin/gallery/${created.body.data.id}`, {
+        method: 'PATCH',
+        token: adminToken,
+        body: {
+            translations: {
+                vi: { title: 'Bài VI giữ nguyên', excerpt: 'Mô tả VI', content: 'Nội dung VI' },
+                en: { title: 'Post EN saved', excerpt: 'Excerpt EN', content: 'Content EN' },
+            },
+        },
+    });
+    assert.equal(reopened.status, 200);
+    assert.equal(reopened.body.data.translations.vi.title, 'Bài VI giữ nguyên');
+    assert.equal(reopened.body.data.translations.en.title, 'Post EN saved');
+
+    const pinOnly = await request(context.baseUrl, `/api/admin/gallery/${created.body.data.id}`, {
+        method: 'PATCH',
+        token: adminToken,
+        body: { pin: true },
+    });
+    assert.equal(pinOnly.status, 200);
+    assert.equal(pinOnly.body.data.pin, true);
+    assert.equal(pinOnly.body.data.translations.vi.title, 'Bài VI giữ nguyên');
+    assert.equal(pinOnly.body.data.translations.en.title, 'Post EN saved');
+});
+
 test('gallery paginates 12 items after pin/date sort and video filter includes every category', async () => {
     const stamp = Date.now();
     const youtube = 'https://www.youtube.com/watch?v=dQw4w9WgXcQ';

@@ -17,10 +17,20 @@ const galleryMediaSchema = new mongoose.Schema({
     originalName: { type: String, default: '' },
 }, { _id: false });
 
+const galleryLocaleSchema = new mongoose.Schema({
+    title: { type: String, default: '' },
+    excerpt: { type: String, default: '' },
+    content: { type: String, default: '' },
+}, { _id: false });
+
 const galleryPostSchema = new mongoose.Schema({
     title: { type: String, required: true },
     excerpt: { type: String, default: '' },
     content: { type: String, default: '' },
+    translations: {
+        vi: { type: galleryLocaleSchema, default: () => ({}) },
+        en: { type: galleryLocaleSchema, default: () => ({}) },
+    },
     category: { type: String, required: true, trim: true, maxlength: 80 },
     publishedAt: { type: Date, default: null },
     media: { type: [galleryMediaSchema], default: [] },

@@ -131,6 +131,22 @@ function coverOf(post, { admin = false } = {}) {
     return cover ? presentMedia(cover, { admin }) : null;
 }
 
+function localeBlock(raw) {
+    const block = raw && typeof raw === 'object' ? raw : {};
+    return {
+        title: block.title || '',
+        excerpt: block.excerpt || '',
+        content: block.content || '',
+    };
+}
+
+function presentTranslations(post) {
+    return {
+        vi: localeBlock(post.translations && post.translations.vi),
+        en: localeBlock(post.translations && post.translations.en),
+    };
+}
+
 function presentPost(post, { admin = false } = {}) {
     const media = (post.media || [])
         .map((item, index) => {
@@ -138,11 +154,13 @@ function presentPost(post, { admin = false } = {}) {
             return presentMedia({ ...raw, sortOrder: raw.sortOrder ?? index }, { admin });
         })
         .sort((a, b) => a.sortOrder - b.sortOrder);
+    const translations = presentTranslations(post);
     const data = {
         id: String(post._id),
-        title: post.title,
-        excerpt: post.excerpt || '',
-        content: post.content || '',
+        title: post.title || translations.vi.title || translations.en.title,
+        excerpt: post.excerpt || translations.vi.excerpt || translations.en.excerpt || '',
+        content: post.content || translations.vi.content || translations.en.content || '',
+        translations,
         category: post.category,
         publishedAt: post.publishedAt ? new Date(post.publishedAt).toISOString() : null,
         order: post.order || 0,
@@ -255,12 +273,36 @@ function validateBody(body, galleryDir, { partial = false } = {}) {
         throw new ApiError(400, 'BAD_REQUEST', 'Request body must be a JSON object.');
     }
     const errors = [];
-    const title = body.title === undefined ? undefined : optionalText(body.title, TITLE_MAX, 'title', errors);
-    if (!partial || body.title !== undefined) {
-        if (!title) errors.push({ field: 'title', code: 'REQUIRED', message: 'Title is required.' });
+    let translations;
+    if (body.translations !== undefined) {
+        if (!body.translations || typeof body.translations !== 'object' || Array.isArray(body.translations)) {
+            errors.push({ field: 'translations', code: 'INVALID', message: 'Translations must be an object.' });
+        } else {
+            translations = {
+                vi: localeBlock({
+                    title: optionalText(body.translations.vi && body.translations.vi.title, TITLE_MAX, 'translations.vi.title', errors),
+                    excerpt: optionalText(body.translations.vi && body.translations.vi.excerpt, EXCERPT_MAX, 'translations.vi.excerpt', errors),
+                    content: optionalText(body.translations.vi && body.translations.vi.content, CONTENT_MAX, 'translations.vi.content', errors),
+                }),
+                en: localeBlock({
+                    title: optionalText(body.translations.en && body.translations.en.title, TITLE_MAX, 'translations.en.title', errors),
+                    excerpt: optionalText(body.translations.en && body.translations.en.excerpt, EXCERPT_MAX, 'translations.en.excerpt', errors),
+                    content: optionalText(body.translations.en && body.translations.en.content, CONTENT_MAX, 'translations.en.content', errors),
+                }),
+            };
+        }
     }
+    const title = body.title === undefined ? undefined : optionalText(body.title, TITLE_MAX, 'title', errors);
     const excerpt = body.excerpt === undefined ? undefined : optionalText(body.excerpt, EXCERPT_MAX, 'excerpt', errors);
     const content = body.content === undefined ? undefined : optionalText(body.content, CONTENT_MAX, 'content', errors);
+    const resolvedTitle = title
+        || (translations && (translations.vi.title || translations.en.title))
+        || '';
+    if (!partial || body.title !== undefined || body.translations !== undefined) {
+        if (!partial && !resolvedTitle) {
+            errors.push({ field: 'title', code: 'REQUIRED', message: 'Title is required.' });
+        }
+    }
     let category;
     if (body.category !== undefined) {
         category = cleanString(body.category).toLowerCase();
@@ -358,8 +400,22 @@ function validateBody(body, galleryDir, { partial = false } = {}) {
     }
     const updates = {};
     if (title !== undefined) updates.title = title;
+    else if (resolvedTitle) updates.title = resolvedTitle;
     if (excerpt !== undefined) updates.excerpt = excerpt;
+    else if (translations) updates.excerpt = translations.vi.excerpt || translations.en.excerpt;
     if (content !== undefined) updates.content = content;
+    else if (translations) updates.content = translations.vi.content || translations.en.content;
+    if (translations) updates.translations = translations;
+    else if (!partial) {
+        updates.translations = {
+            vi: {
+                title: updates.title || '',
+                excerpt: updates.excerpt || '',
+                content: updates.content || '',
+            },
+            en: { title: '', excerpt: '', content: '' },
+        };
+    }
     if (category !== undefined) updates.category = category;
     if (status !== undefined) updates.status = status;
     if (publishedAt !== undefined) updates.publishedAt = publishedAt;
