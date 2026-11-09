@@ -47,7 +47,52 @@ function readCompatibility(value) {
     return { value: next };
 }
 
+function hasOwn(object, key) {
+    return Boolean(object) && Object.prototype.hasOwnProperty.call(object, key);
+}
+
+function mergeCompatibility(current, incoming) {
+    if (incoming === undefined) {
+        return {
+            value: current && typeof current === 'object' && !Array.isArray(current) ? current : {},
+        };
+    }
+    const parsed = readCompatibility(incoming);
+    if (parsed.error) return parsed;
+    const base = current && typeof current === 'object' && !Array.isArray(current) ? current : {};
+    return { value: { ...base, ...parsed.value } };
+}
+
+function mergeAttributes(current, incoming) {
+    const base = current && typeof current === 'object' && !Array.isArray(current) ? { ...current } : {};
+    if (incoming === undefined) return base;
+    if (!incoming || typeof incoming !== 'object' || Array.isArray(incoming)) return base;
+    const next = { ...base, ...incoming };
+    if (base.wizardId != null && String(base.wizardId) !== '') {
+        next.wizardId = base.wizardId;
+    }
+    return next;
+}
+
+function assertImmutableIdentifiers(current, body, categoryId) {
+    const currentCode = optionCode(current, categoryId);
+    if (hasOwn(body, 'code') && body.code != null && String(body.code).trim() !== '') {
+        const requested = readCode(body.code);
+        if (requested !== currentCode) {
+            throw new ApiError(422, 'VALIDATION_ERROR', 'Custom build setup is invalid.', [
+                { field: 'code', code: 'IMMUTABLE', message: 'Option code cannot be changed after create.' },
+            ]);
+        }
+    }
+    if (hasOwn(body, 'id') && body.id != null && String(body.id).trim() !== '' && String(body.id) !== String(current.id)) {
+        throw new ApiError(422, 'VALIDATION_ERROR', 'Custom build setup is invalid.', [
+            { field: 'id', code: 'IMMUTABLE', message: 'Option id cannot be changed after create.' },
+        ]);
+    }
+}
+
 function readDefaultForInstrumentTypeIds(value) {
+    if (value === undefined) return { omitted: true };
     if (value == null || value === '') return { value: [] };
     if (!Array.isArray(value)) {
         return { error: { field: 'defaultForInstrumentTypeIds', code: 'INVALID', message: 'defaultForInstrumentTypeIds must be an array.' } };
@@ -58,6 +103,7 @@ function readDefaultForInstrumentTypeIds(value) {
 }
 
 function readImagePath(value) {
+    if (value === undefined) return { omitted: true };
     const path = cleanString(value);
     if (!path) return '';
     if (!path.startsWith('/uploads/') || path.includes('..') || path.includes('\\')) {
@@ -66,34 +112,39 @@ function readImagePath(value) {
     return path.slice(0, 240);
 }
 
-function translationsFrom(body, fallbackName) {
-    const vi = body.translations?.vi || {};
-    const en = body.translations?.en || {};
+function translationsFrom(body, fallbackName, existing) {
+    const viSource = body.translations?.vi
+        ? { ...(existing?.vi || {}), ...body.translations.vi }
+        : (existing?.vi || {});
+    const enSource = body.translations?.en
+        ? { ...(existing?.en || {}), ...body.translations.en }
+        : (existing?.en || {});
     return {
         vi: {
-            name: cleanString(vi.name).slice(0, NAME_MAX),
-            description: cleanString(vi.description).slice(0, TEXT_MAX),
+            name: cleanString(viSource.name).slice(0, NAME_MAX),
+            description: cleanString(viSource.description).slice(0, TEXT_MAX),
         },
         en: {
-            name: cleanString(en.name || fallbackName).slice(0, NAME_MAX),
-            description: cleanString(en.description).slice(0, TEXT_MAX),
+            name: cleanString(enSource.name || fallbackName).slice(0, NAME_MAX),
+            description: cleanString(enSource.description).slice(0, TEXT_MAX),
         },
     };
 }
 
-function optionFromBody(category, body, { existingId } = {}) {
+function optionFromBody(category, body, existing = {}) {
     const errors = [];
-    const name = cleanString(body.name).slice(0, NAME_MAX);
+    const name = cleanString(body.name).slice(0, NAME_MAX) || cleanString(existing.name).slice(0, NAME_MAX);
     if (!name) errors.push({ field: 'name', code: 'REQUIRED', message: 'Name is required.' });
-    const code = readCode(body.code);
-    if (!code || !CODE_PATTERN.test(code) || code.length > 40) {
+    const existingCode = existing.code || (existing.id ? optionCode(existing, category.id) : '');
+    const code = existingCode || readCode(body.code);
+    if (!existingCode && (!code || !CODE_PATTERN.test(code) || code.length > 40)) {
         errors.push({ field: 'code', code: 'INVALID', message: 'Use a lowercase slug such as electric-guitar.' });
     }
-    const id = existingId || `${category.id}.${code}`;
+    const id = existing.id || `${category.id}.${code}`;
     if (!isOptionId(id)) {
         errors.push({ field: 'code', code: 'INVALID', message: 'Option id is invalid for this category.' });
     }
-    const compatibility = readCompatibility(body.compatibility);
+    const compatibility = mergeCompatibility(existing.compatibility, body.compatibility);
     if (compatibility.error) errors.push(compatibility.error);
     const imagePath = readImagePath(body.imagePath);
     if (imagePath && imagePath.error) errors.push(imagePath.error);
@@ -103,29 +154,39 @@ function optionFromBody(category, body, { existingId } = {}) {
     if (scopes.error) errors.push(scopes.error);
     if (errors.length) invalid(errors);
 
-    const isDefault = Boolean(body.isDefault);
-    const active = body.active === false ? false : true;
-    const defaultForInstrumentTypeIds = active ? (scopes.value || []) : [];
+    const active = body.active === undefined ? existing.active !== false : body.active !== false;
+    const isDefault = !active
+        ? false
+        : (body.isDefault === undefined ? Boolean(existing.isDefault) : Boolean(body.isDefault));
+    const defaultForInstrumentTypeIds = !active
+        ? []
+        : (scopes.omitted ? (existing.defaultForInstrumentTypeIds || []) : (scopes.value || []));
     if ((isDefault || defaultForInstrumentTypeIds.length) && !active) {
         invalid([{ field: 'isDefault', code: 'INVALID', message: 'A default option must be active.' }]);
     }
 
+    const resolvedImagePath = imagePath?.omitted ? (existing.imagePath || '') : (imagePath || '');
+    const resolvedAttributes = mergeAttributes(existing.attributes, body.attributes);
+    const sortOrder = Number.isFinite(Number(body.sortOrder))
+        ? Number(body.sortOrder)
+        : (Number.isFinite(Number(existing.sortOrder)) ? Number(existing.sortOrder) : (category.options || []).length);
+
     return {
         id,
         name,
-        description: cleanString(body.description).slice(0, TEXT_MAX) || null,
+        description: body.description !== undefined
+            ? (cleanString(body.description).slice(0, TEXT_MAX) || null)
+            : (existing.description ?? null),
         active,
         code,
-        imagePath: imagePath || '',
-        icon: cleanString(body.icon).slice(0, 40),
+        imagePath: resolvedImagePath,
+        icon: body.icon !== undefined ? cleanString(body.icon).slice(0, 40) : (existing.icon || ''),
         isDefault,
         defaultForInstrumentTypeIds,
-        sortOrder: Number.isFinite(Number(body.sortOrder)) ? Number(body.sortOrder) : (category.options || []).length,
-        translations: translationsFrom(body, name),
+        sortOrder,
+        translations: translationsFrom(body, name, existing.translations),
         compatibility: compatibility.value || {},
-        attributes: body.attributes && typeof body.attributes === 'object' && !Array.isArray(body.attributes)
-            ? body.attributes
-            : {},
+        attributes: resolvedAttributes,
     };
 }
 
@@ -363,18 +424,8 @@ function createWizardSetupService() {
             const { index } = findOption(category, optionId);
             if (index < 0) throw new ApiError(404, 'NOT_FOUND', 'Option was not found.');
             const current = category.options[index].toObject();
-            const merged = {
-                ...current,
-                ...body,
-                code: body.code || current.code || optionCode(current, category.id),
-                translations: body.translations || current.translations,
-                compatibility: body.compatibility !== undefined ? body.compatibility : current.compatibility,
-                attributes: body.attributes !== undefined ? body.attributes : current.attributes,
-                defaultForInstrumentTypeIds: body.defaultForInstrumentTypeIds !== undefined
-                    ? body.defaultForInstrumentTypeIds
-                    : current.defaultForInstrumentTypeIds,
-            };
-            const next = optionFromBody(category, merged, { existingId: current.id });
+            assertImmutableIdentifiers(current, body, category.id);
+            const next = optionFromBody(category, body, current);
             const duplicate = category.options.some((item, itemIndex) => (
                 itemIndex !== index && (item.id === next.id || optionCode(item, category.id) === next.code)
             ));
@@ -383,7 +434,10 @@ function createWizardSetupService() {
             }
             assertOptionRelations(next, await catalogById(), category.id, current);
             const options = category.options.map((item, itemIndex) => (itemIndex === index ? next : item.toObject()));
-            category.options = applyDefaultUniqueness(options, next);
+            const touchesDefaults = hasOwn(body, 'isDefault')
+                || hasOwn(body, 'defaultForInstrumentTypeIds')
+                || hasOwn(body, 'active');
+            category.options = touchesDefaults ? applyDefaultUniqueness(options, next) : options;
             category.markModified('options');
             await category.save();
             return toAdminOption(next, category.id);

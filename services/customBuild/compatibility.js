@@ -3,6 +3,7 @@ const {
     COMPATIBILITY_KEY_CATEGORIES,
     allowedCompatibilityKeys,
     groupStep,
+    isShapeChildGroup,
 } = require('./wizardGroups');
 const { optionCode } = require('./presenters');
 
@@ -38,19 +39,20 @@ function findOptionByAlias(category, value) {
     return (category.options || []).find((option) => optionAliases(option, category.id).has(needle)) || null;
 }
 
-function validateCompatibilityOrder(compatibility, categoryId) {
+function validateCompatibilityOrder(compatibility, categoryId, existingCompatibility) {
     const allowed = new Set(allowedCompatibilityKeys(categoryId));
     const errors = [];
     for (const key of COMPATIBILITY_KEYS) {
         const values = compatibility?.[key];
         if (!Array.isArray(values) || values.length === 0) continue;
-        if (!allowed.has(key)) {
-            errors.push({
-                field: `compatibility.${key}`,
-                code: 'FORWARD_COMPAT',
-                message: 'Compatibility may only reference wizard groups that appear before this group.',
-            });
-        }
+        if (allowed.has(key)) continue;
+        const stored = Array.isArray(existingCompatibility?.[key]) && existingCompatibility[key].length > 0;
+        if (stored) continue;
+        errors.push({
+            field: `compatibility.${key}`,
+            code: 'FORWARD_COMPAT',
+            message: 'Compatibility may only reference wizard groups that appear before this group.',
+        });
     }
     return errors;
 }
@@ -60,7 +62,7 @@ function alreadyReferenced(existing, key, value) {
 }
 
 function validateCompatibilityValues(compatibility, catalogById, categoryId, existingCompatibility) {
-    const errors = categoryId ? validateCompatibilityOrder(compatibility, categoryId) : [];
+    const errors = categoryId ? validateCompatibilityOrder(compatibility, categoryId, existingCompatibility) : [];
     for (const key of COMPATIBILITY_KEYS) {
         const values = compatibility?.[key];
         if (!Array.isArray(values) || values.length === 0) continue;
@@ -70,12 +72,14 @@ function validateCompatibilityValues(compatibility, catalogById, categoryId, exi
         values.forEach((value, index) => {
             const option = findOptionByAlias(category, value);
             if (!option) {
-                errors.push({
-                    field: `compatibility.${key}`,
-                    code: 'UNKNOWN_COMPAT',
-                    message: `"${value}" is not a known ${targetCategoryId} option.`,
-                    index,
-                });
+                if (!alreadyReferenced(existingCompatibility, key, value)) {
+                    errors.push({
+                        field: `compatibility.${key}`,
+                        code: 'UNKNOWN_COMPAT',
+                        message: `"${value}" is not a known ${targetCategoryId} option.`,
+                        index,
+                    });
+                }
                 return;
             }
             if (option.active === false && !alreadyReferenced(existingCompatibility, key, value)) {
@@ -110,7 +114,7 @@ function validateSelectionDependencies(selections, catalog) {
     const byId = new Map(catalog.categories.map((category) => [category.id, category]));
     for (const category of catalog.categories) {
         const step = category.step ?? category.metadata?.step ?? groupStep(category.id);
-        if (Number(step) < 4) continue;
+        if (Number(step) < 4 && !isShapeChildGroup(category.id) && category.id !== 'series' && category.id !== 'body-shape') continue;
         const selectedId = selections[category.id];
         if (!selectedId) continue;
         const option = (category.options || []).find((item) => item.id === selectedId)

@@ -72,7 +72,17 @@ function groupStep(categoryId) {
     return WIZARD_GROUPS.find((item) => item.id === categoryId)?.step ?? null;
 }
 
+const SHAPE_CHILD_GROUP_IDS = new Set(['scale', 'string-count', 'radius']);
+const BODY_SHAPE_UPSTREAM_GROUP_IDS = ['instrument-type', 'series'];
+
+function isShapeChildGroup(categoryId) {
+    return SHAPE_CHILD_GROUP_IDS.has(String(categoryId || ''));
+}
+
 function allowedCompatibilityGroupIds(categoryId) {
+    if (categoryId === 'series') return ['instrument-type'];
+    if (categoryId === 'body-shape') return [...BODY_SHAPE_UPSTREAM_GROUP_IDS];
+    if (isShapeChildGroup(categoryId)) return [...BODY_SHAPE_UPSTREAM_GROUP_IDS, 'body-shape'];
     const preceding = precedingGroups(categoryId);
     const step = groupStep(categoryId);
     if (Number(step) >= 4) {
@@ -92,6 +102,9 @@ module.exports = {
     WIZARD_GROUPS,
     COMPATIBILITY_KEYS,
     COMPATIBILITY_KEY_CATEGORIES,
+    SHAPE_CHILD_GROUP_IDS,
+    BODY_SHAPE_UPSTREAM_GROUP_IDS,
+    isShapeChildGroup,
     groupOrderIndex,
     precedingGroups,
     groupStep,

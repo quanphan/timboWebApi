@@ -467,7 +467,13 @@ describe('custom build wizard setup', { concurrency: false }, () => {
         const { precedingGroups, allowedCompatibilityKeys } = require('../services/customBuild/wizardGroups');
         assert.deepEqual(precedingGroups('series').map((item) => item.id), ['instrument-type']);
         assert.deepEqual(precedingGroups('body-shape').map((item) => item.id), ['instrument-type', 'series']);
+        assert.deepEqual(allowedCompatibilityKeys('body-shape'), ['instrumentTypeIds', 'seriesIds']);
+        assert.deepEqual(allowedCompatibilityKeys('series'), ['instrumentTypeIds']);
+        assert.deepEqual(allowedCompatibilityKeys('scale'), ['instrumentTypeIds', 'seriesIds', 'shapeIds']);
+        assert.deepEqual(allowedCompatibilityKeys('string-count'), ['instrumentTypeIds', 'seriesIds', 'shapeIds']);
+        assert.deepEqual(allowedCompatibilityKeys('radius'), ['instrumentTypeIds', 'seriesIds', 'shapeIds']);
         assert.equal(allowedCompatibilityKeys('scale').includes('stringCounts'), false);
+        assert.equal(allowedCompatibilityKeys('scale').includes('instrumentTypeIds'), true);
         assert.equal(allowedCompatibilityKeys('scale').includes('shapeIds'), true);
         assert.equal(allowedCompatibilityKeys('pickup-config').includes('instrumentTypeIds'), true);
         assert.equal(allowedCompatibilityKeys('pickup-config').includes('seriesIds'), true);
@@ -649,4 +655,296 @@ describe('custom build wizard setup', { concurrency: false }, () => {
         const seriesAgain = publicAgain.body.data.categories.find((item) => item.id === 'series');
         assert.equal(seriesAgain.options.some((item) => item.id === hiddenId), true);
     });
+
+    test('renaming a series preserves id, code, compatibility, and related options', async () => {
+        const created = await request(context.baseUrl, '/api/admin/custom-build/setup/series/options', {
+            method: 'POST',
+            token: adminToken,
+            body: {
+                name: 'PQ-BOUTIQUE',
+                code: 'rename-preserve-series',
+                isDefault: false,
+                defaultForInstrumentTypeIds: ['electric-guitar'],
+                attributes: { wizardId: 'rename-preserve-series', finish: 'nitro' },
+                translations: {
+                    en: { name: 'PQ-BOUTIQUE', description: 'Boutique line' },
+                    vi: { name: 'PQ-BOUTIQUE', description: 'Dòng boutique' },
+                },
+                compatibility: { instrumentTypeIds: ['electric-guitar', 'bass'] },
+            },
+        });
+        assert.equal(created.status, 201);
+        const createdId = created.body.data.id;
+        const sortOrder = created.body.data.sortOrder;
+
+        const other = await request(context.baseUrl, '/api/admin/custom-build/setup/body-shape/options', {
+            method: 'POST',
+            token: adminToken,
+            body: {
+                name: 'Rename related shape',
+                code: 'rename-related-shape',
+                compatibility: { seriesIds: ['rename-preserve-series', 'solid-body'] },
+            },
+        });
+        assert.equal(other.status, 201);
+        const otherCompat = other.body.data.compatibility.seriesIds;
+
+        const renamed = await request(
+            context.baseUrl,
+            `/api/admin/custom-build/setup/series/options/${createdId}`,
+            {
+                method: 'PATCH',
+                token: adminToken,
+                body: {
+                    name: 'PQ-BOUTIQUE CUSTOM',
+                    translations: {
+                        en: { name: 'PQ-BOUTIQUE CUSTOM' },
+                        vi: { name: 'PQ-BOUTIQUE CUSTOM' },
+                    },
+                },
+            },
+        );
+        assert.equal(renamed.status, 200);
+        assert.equal(renamed.body.data.id, createdId);
+        assert.equal(renamed.body.data.code, 'rename-preserve-series');
+        assert.equal(renamed.body.data.sortOrder, sortOrder);
+        assert.equal(renamed.body.data.active, true);
+        assert.equal(renamed.body.data.isDefault, false);
+        assert.deepEqual(renamed.body.data.defaultForInstrumentTypeIds, ['electric-guitar']);
+        assert.deepEqual(renamed.body.data.compatibility.instrumentTypeIds, ['electric-guitar', 'bass']);
+        assert.equal(renamed.body.data.attributes.wizardId, 'rename-preserve-series');
+        assert.equal(renamed.body.data.attributes.finish, 'nitro');
+        assert.equal(renamed.body.data.translations.en.description, 'Boutique line');
+
+        const related = await request(context.baseUrl, '/api/admin/custom-build/setup/body-shape', { token: adminToken });
+        const relatedShape = related.body.data.options.find((item) => item.id === other.body.data.id);
+        assert.deepEqual(relatedShape.compatibility.seriesIds, otherCompat);
+    });
+
+    test('existing option identifiers cannot be changed through the API', async () => {
+        const created = await request(context.baseUrl, '/api/admin/custom-build/setup/series/options', {
+            method: 'POST',
+            token: adminToken,
+            body: { name: 'Immutable series', code: 'immutable-series' },
+        });
+        assert.equal(created.status, 201);
+
+        const rejectedCode = await request(
+            context.baseUrl,
+            `/api/admin/custom-build/setup/series/options/${created.body.data.id}`,
+            {
+                method: 'PATCH',
+                token: adminToken,
+                body: { code: 'changed-series', name: 'Immutable series' },
+            },
+        );
+        assert.equal(rejectedCode.status, 422);
+        assert.equal(rejectedCode.body.error.details[0].code, 'IMMUTABLE');
+
+        const rejectedId = await request(
+            context.baseUrl,
+            `/api/admin/custom-build/setup/series/options/${created.body.data.id}`,
+            {
+                method: 'PATCH',
+                token: adminToken,
+                body: { id: 'series.other-id', name: 'Immutable series' },
+            },
+        );
+        assert.equal(rejectedId.status, 422);
+        assert.equal(rejectedId.body.error.details[0].code, 'IMMUTABLE');
+
+        const stored = await request(context.baseUrl, '/api/admin/custom-build/setup/series', { token: adminToken });
+        const option = stored.body.data.options.find((item) => item.id === created.body.data.id);
+        assert.equal(option.code, 'immutable-series');
+        assert.equal(option.id, created.body.data.id);
+        assert.equal(option.name, 'Immutable series');
+    });
+
+    test('partial name update preserves omitted nested configuration', async () => {
+        const created = await request(context.baseUrl, '/api/admin/custom-build/setup/series/options', {
+            method: 'POST',
+            token: adminToken,
+            body: {
+                name: 'Partial series',
+                code: 'partial-series',
+                icon: 'mark',
+                isDefault: false,
+                attributes: { wizardId: 'partial-series', origin: 'keep-me' },
+                compatibility: { instrumentTypeIds: ['electric-guitar'] },
+            },
+        });
+        assert.equal(created.status, 201);
+        const before = created.body.data;
+
+        const patched = await request(
+            context.baseUrl,
+            `/api/admin/custom-build/setup/series/options/${before.id}`,
+            {
+                method: 'PATCH',
+                token: adminToken,
+                body: { name: 'Partial series renamed' },
+            },
+        );
+        assert.equal(patched.status, 200);
+        assert.equal(patched.body.data.name, 'Partial series renamed');
+        assert.equal(patched.body.data.code, 'partial-series');
+        assert.equal(patched.body.data.icon, 'mark');
+        assert.equal(patched.body.data.sortOrder, before.sortOrder);
+        assert.deepEqual(patched.body.data.compatibility.instrumentTypeIds, ['electric-guitar']);
+        assert.equal(patched.body.data.attributes.origin, 'keep-me');
+        assert.equal(patched.body.data.attributes.wizardId, 'partial-series');
+    });
+
+    test('renaming one option does not rewrite another option compatibility', async () => {
+        const first = await request(context.baseUrl, '/api/admin/custom-build/setup/body-shape/options', {
+            method: 'POST',
+            token: adminToken,
+            body: {
+                name: 'First isolation shape',
+                code: 'isolation-shape-a',
+                compatibility: { seriesIds: ['solid-body'] },
+            },
+        });
+        const second = await request(context.baseUrl, '/api/admin/custom-build/setup/body-shape/options', {
+            method: 'POST',
+            token: adminToken,
+            body: {
+                name: 'Second isolation shape',
+                code: 'isolation-shape-b',
+                compatibility: { seriesIds: ['headless'] },
+            },
+        });
+        assert.equal(first.status, 201);
+        assert.equal(second.status, 201);
+
+        const renamed = await request(
+            context.baseUrl,
+            `/api/admin/custom-build/setup/body-shape/options/${first.body.data.id}`,
+            {
+                method: 'PATCH',
+                token: adminToken,
+                body: { name: 'First isolation shape renamed' },
+            },
+        );
+        assert.equal(renamed.status, 200);
+        assert.deepEqual(renamed.body.data.compatibility.seriesIds, ['solid-body']);
+
+        const listed = await request(context.baseUrl, '/api/admin/custom-build/setup/body-shape', { token: adminToken });
+        const kept = listed.body.data.options.find((item) => item.id === second.body.data.id);
+        assert.deepEqual(kept.compatibility.seriesIds, ['headless']);
+        assert.equal(kept.name, 'Second isolation shape');
+    });
+
+    test('scale, strings, and radius accept body-shape compatibility and ignore leftover sibling rules', async () => {
+        const { validateSelectionDependencies } = require('../services/customBuild/compatibility');
+        const created = await request(context.baseUrl, '/api/admin/custom-build/setup/scale/options', {
+            method: 'POST',
+            token: adminToken,
+            body: {
+                name: 'Shape only scale',
+                code: 'shape-only-scale',
+                compatibility: { shapeIds: ['compact-modern'] },
+            },
+        });
+        assert.equal(created.status, 201);
+        assert.deepEqual(created.body.data.compatibility.shapeIds, ['compact-modern']);
+
+        const withUpstream = await request(context.baseUrl, '/api/admin/custom-build/setup/scale/options', {
+            method: 'POST',
+            token: adminToken,
+            body: {
+                name: 'Typed scale',
+                code: 'typed-scale',
+                compatibility: {
+                    instrumentTypeIds: ['electric-guitar'],
+                    seriesIds: ['headless'],
+                    shapeIds: ['compact-modern'],
+                },
+            },
+        });
+        assert.equal(withUpstream.status, 201);
+        assert.deepEqual(withUpstream.body.data.compatibility.instrumentTypeIds, ['electric-guitar']);
+        assert.deepEqual(withUpstream.body.data.compatibility.seriesIds, ['headless']);
+        assert.deepEqual(withUpstream.body.data.compatibility.shapeIds, ['compact-modern']);
+
+        const rejectedSibling = await request(context.baseUrl, '/api/admin/custom-build/setup/scale/options', {
+            method: 'POST',
+            token: adminToken,
+            body: {
+                name: 'Sibling scale',
+                code: 'sibling-scale',
+                compatibility: { shapeIds: ['compact-modern'], stringCounts: [6] },
+            },
+        });
+        assert.equal(rejectedSibling.status, 422);
+        assert.equal(rejectedSibling.body.error.details[0].code, 'FORWARD_COMPAT');
+
+        const strings = await request(context.baseUrl, '/api/admin/custom-build/setup/string-count/options', {
+            method: 'POST',
+            token: adminToken,
+            body: {
+                name: 'Shape strings',
+                code: 'shape-strings',
+                attributes: { value: 9 },
+                compatibility: { shapeIds: ['compact-modern'] },
+            },
+        });
+        assert.equal(strings.status, 201);
+
+        const radius = await request(context.baseUrl, '/api/admin/custom-build/setup/radius/options', {
+            method: 'POST',
+            token: adminToken,
+            body: {
+                name: 'Shape radius',
+                code: 'shape-radius',
+                compatibility: { shapeIds: ['compact-modern'] },
+            },
+        });
+        assert.equal(radius.status, 201);
+
+        const radiusDoc = await CustomBuildOption.findOne({ id: 'radius' });
+        const storedRadius = radiusDoc.options.find((item) => item.id === radius.body.data.id);
+        storedRadius.compatibility = {
+            shapeIds: ['compact-modern'],
+            scaleIds: ['25.5'],
+            stringCounts: [6],
+        };
+        radiusDoc.markModified('options');
+        await radiusDoc.save();
+
+        const renamed = await request(
+            context.baseUrl,
+            `/api/admin/custom-build/setup/radius/options/${radius.body.data.id}`,
+            {
+                method: 'PATCH',
+                token: adminToken,
+                body: { name: 'Shape radius renamed' },
+            },
+        );
+        assert.equal(renamed.status, 200);
+        assert.deepEqual(renamed.body.data.compatibility.shapeIds, ['compact-modern']);
+        assert.deepEqual(renamed.body.data.compatibility.scaleIds, ['25.5']);
+        assert.deepEqual(renamed.body.data.compatibility.stringCounts, [6]);
+
+        const listed = await request(context.baseUrl, '/api/admin/custom-build/setup', { token: adminToken });
+        const catalog = { categories: listed.body.data.categories };
+        const compact = catalog.categories.find((item) => item.id === 'body-shape')
+            .options.find((item) => item.code === 'compact-modern' || item.id.endsWith('compact-modern'));
+        const ok = validateSelectionDependencies({
+            'body-shape': compact.id,
+            scale: created.body.data.id,
+            'string-count': strings.body.data.id,
+            radius: radius.body.data.id,
+        }, catalog);
+        assert.equal(ok.length, 0);
+
+        const doubleCut = catalog.categories.find((item) => item.id === 'body-shape')
+            .options.find((item) => item.code === 'double-cut' || item.id.endsWith('double-cut'));
+        const rejected = validateSelectionDependencies({
+            'body-shape': doubleCut.id,
+            scale: created.body.data.id,
+        }, catalog);
+        assert.equal(rejected.some((item) => item.code === 'INCOMPATIBLE_OPTION'), true);
+    });
 });
+
