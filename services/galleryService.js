@@ -1,6 +1,7 @@
 const fs = require('fs/promises');
 const GalleryPost = require('../models/GalleryPost');
-const { GALLERY_CATEGORIES } = GalleryPost;
+const GalleryCategory = require('../models/GalleryCategory');
+const { GALLERY_CATEGORIES, LEGACY_GALLERY_CATEGORIES } = GalleryPost;
 const { ApiError } = require('../utils/errors');
 const { pageMeta } = require('../utils/http');
 const { parsePagination } = require('../utils/pagination');
@@ -14,6 +15,77 @@ const CONTENT_MAX = 8000;
 const MEDIA_IMAGE_MAX = 5;
 const MEDIA_VIDEO_MAX = 5;
 const MEDIA_MAX = MEDIA_IMAGE_MAX + MEDIA_VIDEO_MAX;
+const RESERVED_GALLERY_FILTERS = ['all', 'video'];
+const SLUG_PATTERN = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
+const DEFAULT_GALLERY_CATEGORIES = [
+    { slug: 'process', sortOrder: 10, translations: { en: { name: 'Build process' }, vi: { name: 'Quá trình chế tác' } } },
+    { slug: 'art-of-making', sortOrder: 20, translations: { en: { name: 'Art of Making' }, vi: { name: 'Nghệ thuật chế tác' } } },
+    { slug: 'materials', sortOrder: 30, translations: { en: { name: 'Materials & wood' }, vi: { name: 'Vật liệu & gỗ' } } },
+    { slug: 'finish', sortOrder: 40, translations: { en: { name: 'Finish' }, vi: { name: 'Hoàn thiện' } } },
+    { slug: 'instruments', sortOrder: 50, translations: { en: { name: 'Finished guitars' }, vi: { name: 'Guitar hoàn thiện' } } },
+];
+
+function presentCategory(doc) {
+    const raw = doc && typeof doc.toObject === 'function' ? doc.toObject() : doc;
+    return {
+        id: String(raw._id),
+        slug: raw.slug,
+        isActive: raw.isActive !== false,
+        sortOrder: Number.isFinite(Number(raw.sortOrder)) ? Number(raw.sortOrder) : 0,
+        translations: {
+            en: { name: (raw.translations && raw.translations.en && raw.translations.en.name) || '' },
+            vi: { name: (raw.translations && raw.translations.vi && raw.translations.vi.name) || '' },
+        },
+    };
+}
+
+async function ensureDefaultCategories() {
+    const existing = await GalleryCategory.find({}).select('slug').lean();
+    const have = new Set(existing.map((item) => item.slug));
+    const missing = DEFAULT_GALLERY_CATEGORIES.filter((item) => !have.has(item.slug));
+    if (missing.length) {
+        await GalleryCategory.insertMany(missing);
+    }
+}
+
+function isValidCategorySlug(value) {
+    return typeof value === 'string' && SLUG_PATTERN.test(value) && value.length <= 80;
+}
+
+async function assertAssignableCategory(slug) {
+    if (RESERVED_GALLERY_FILTERS.includes(slug) && slug !== 'video') {
+        throw new ApiError(422, 'VALIDATION_ERROR', 'Gallery post is invalid.', [{
+            field: 'category',
+            code: 'INVALID',
+            message: 'Select a valid gallery category.',
+        }]);
+    }
+    if (LEGACY_GALLERY_CATEGORIES.includes(slug)) return;
+    const found = await GalleryCategory.findOne({ slug }).lean();
+    if (!found) {
+        throw new ApiError(422, 'VALIDATION_ERROR', 'Gallery post is invalid.', [{
+            field: 'category',
+            code: 'UNKNOWN_CATEGORY',
+            message: 'Select a valid gallery category.',
+        }]);
+    }
+}
+
+function galleryDateSortPipeline(match, skip, limit) {
+    return [
+        { $match: match },
+        {
+            $addFields: {
+                pinSort: { $cond: [{ $eq: ['$pin', true] }, 1, 0] },
+                _hasDisplayDate: { $cond: [{ $ifNull: ['$publishedAt', false] }, 1, 0] },
+            },
+        },
+        { $sort: { pinSort: -1, _hasDisplayDate: -1, publishedAt: -1, _id: -1 } },
+        { $skip: skip },
+        { $limit: limit },
+        { $project: { pinSort: 0, _hasDisplayDate: 0 } },
+    ];
+}
 
 function inferProvider(item) {
     if (parseGalleryUrl(item.path || item.url || '')) return item.provider === 'upload' || !item.provider ? 'upload' : item.provider;
@@ -78,6 +150,7 @@ function presentPost(post, { admin = false } = {}) {
         media,
         coverMediaId: post.coverMediaId || (media[0] ? media[0].id : ''),
         showAtHome: Boolean(post.showAtHome),
+        pin: post.pin === true,
     };
     if (admin) {
         data.status = post.status;
@@ -190,8 +263,8 @@ function validateBody(body, galleryDir, { partial = false } = {}) {
     const content = body.content === undefined ? undefined : optionalText(body.content, CONTENT_MAX, 'content', errors);
     let category;
     if (body.category !== undefined) {
-        category = cleanString(body.category);
-        if (!GALLERY_CATEGORIES.includes(category)) {
+        category = cleanString(body.category).toLowerCase();
+        if (!isValidCategorySlug(category) || category === 'all') {
             errors.push({ field: 'category', code: 'INVALID', message: 'Select a valid gallery category.' });
         }
     } else if (!partial) {
@@ -268,6 +341,18 @@ function validateBody(body, galleryDir, { partial = false } = {}) {
     } else if (!partial) {
         showAtHome = false;
     }
+    let pin;
+    if (body.pin !== undefined) {
+        if (body.pin === true || body.pin === 'true') {
+            pin = true;
+        } else if (body.pin === false || body.pin === 'false') {
+            pin = false;
+        } else {
+            errors.push({ field: 'pin', code: 'INVALID', message: 'pin must be true or false.' });
+        }
+    } else if (!partial) {
+        pin = false;
+    }
     if (errors.length) {
         throw new ApiError(422, 'VALIDATION_ERROR', 'Gallery post is invalid.', errors);
     }
@@ -282,6 +367,7 @@ function validateBody(body, galleryDir, { partial = false } = {}) {
     if (media !== undefined) updates.media = media;
     if (coverMediaId !== undefined) updates.coverMediaId = coverMediaId;
     if (showAtHome !== undefined) updates.showAtHome = showAtHome;
+    if (pin !== undefined) updates.pin = pin;
     if (updates.status === 'published' && updates.publishedAt === undefined && !partial) {
         updates.publishedAt = new Date();
     }
@@ -309,6 +395,32 @@ async function deleteRemovedFiles(galleryDir, previous, next, postId) {
     await Promise.all(removed.map((item) => deleteGalleryFile(galleryDir, item.path, postId)));
 }
 
+function listFilter(query, { publicOnly = false } = {}) {
+    const filter = {};
+    if (publicOnly) {
+        filter.status = 'published';
+    } else {
+        const status = cleanString(query.status);
+        if (status === 'draft' || status === 'published') filter.status = status;
+    }
+    const category = cleanString(query.category).toLowerCase();
+    if (category === 'video') {
+        filter.$or = [
+            { 'media.kind': 'video' },
+            { 'media.type': 'video' },
+        ];
+    } else if (category && category !== 'all' && isValidCategorySlug(category)) {
+        filter.category = category;
+    }
+    if (publicOnly) {
+        const home = cleanString(query.showAtHome);
+        if (home === 'true' || home === '1') {
+            filter.showAtHome = true;
+        }
+    }
+    return filter;
+}
+
 function applyCover(post) {
     const media = post.media || [];
     if (!media.length) {
@@ -324,19 +436,12 @@ function createGalleryService(config) {
     const galleryDir = config.galleryDir;
     return {
         async listPublic(query) {
+            await ensureDefaultCategories();
             const { page, limit, skip } = parsePagination(query, 50);
-            const filter = { status: 'published' };
-            const category = cleanString(query.category);
-            if (category && GALLERY_CATEGORIES.includes(category)) {
-                filter.category = category;
-            }
-            const home = cleanString(query.showAtHome);
-            if (home === 'true' || home === '1') {
-                filter.showAtHome = true;
-            }
+            const filter = listFilter(query, { publicOnly: true });
             const [total, posts] = await Promise.all([
                 GalleryPost.countDocuments(filter),
-                GalleryPost.find(filter).sort({ order: 1, publishedAt: -1, createdAt: -1 }).skip(skip).limit(limit),
+                GalleryPost.aggregate(galleryDateSortPipeline(filter, skip, limit)),
             ]);
             return { posts: posts.map((post) => presentPost(post)), meta: pageMeta(page, limit, total) };
         },
@@ -347,14 +452,10 @@ function createGalleryService(config) {
         },
         async listAdmin(query) {
             const { page, limit, skip } = parsePagination(query, 50);
-            const filter = {};
-            const status = cleanString(query.status);
-            if (status === 'draft' || status === 'published') filter.status = status;
-            const category = cleanString(query.category);
-            if (category && GALLERY_CATEGORIES.includes(category)) filter.category = category;
+            const filter = listFilter(query);
             const [total, posts] = await Promise.all([
                 GalleryPost.countDocuments(filter),
-                GalleryPost.find(filter).sort({ order: 1, updatedAt: -1 }).skip(skip).limit(limit),
+                GalleryPost.aggregate(galleryDateSortPipeline(filter, skip, limit)),
             ]);
             return { posts: posts.map((post) => presentPost(post, { admin: true })), meta: pageMeta(page, limit, total) };
         },
@@ -364,8 +465,10 @@ function createGalleryService(config) {
             return presentPost(post, { admin: true });
         },
         async create(body, user) {
+            await ensureDefaultCategories();
             const input = validateBody(body, galleryDir);
-            if (input.status === 'published' && !input.publishedAt) {
+            if (input.category) await assertAssignableCategory(input.category);
+            if (input.status === 'published' && input.publishedAt === undefined) {
                 input.publishedAt = new Date();
             }
             const post = new GalleryPost({
@@ -382,7 +485,9 @@ function createGalleryService(config) {
         async update(id, body, user) {
             const post = await GalleryPost.findById(id);
             if (!post) throw new ApiError(404, 'NOT_FOUND', 'Gallery post was not found.');
+            await ensureDefaultCategories();
             const input = validateBody(body, galleryDir, { partial: true });
+            if (input.category) await assertAssignableCategory(input.category);
             const previousMedia = [...(post.media || [])];
             if (input.status === 'published' && !post.publishedAt && input.publishedAt === undefined) {
                 input.publishedAt = new Date();
@@ -405,7 +510,158 @@ function createGalleryService(config) {
             await deleteRemovedFiles(galleryDir, post.media, [], post._id);
             return { deleted: true };
         },
+        async listPublicCategories() {
+            await ensureDefaultCategories();
+            const items = await GalleryCategory.find({ isActive: true }).sort({ sortOrder: 1, slug: 1 }).lean();
+            return items.map(presentCategory);
+        },
+        async listAdminCategories() {
+            await ensureDefaultCategories();
+            const items = await GalleryCategory.find({}).sort({ sortOrder: 1, slug: 1 }).lean();
+            const slugs = items.map((item) => item.slug);
+            const counts = slugs.length
+                ? await GalleryPost.aggregate([
+                    { $match: { category: { $in: slugs } } },
+                    { $group: { _id: '$category', count: { $sum: 1 } } },
+                ])
+                : [];
+            const usage = new Map(counts.map((item) => [item._id, item.count]));
+            return items.map((item) => ({ ...presentCategory(item), usageCount: usage.get(item.slug) || 0 }));
+        },
+        async createCategory(body) {
+            await ensureDefaultCategories();
+            const parsed = readCategoryBody(body);
+            if (await GalleryCategory.findOne({ slug: parsed.slug })) {
+                throw new ApiError(422, 'VALIDATION_ERROR', 'Gallery category is invalid.', [{
+                    field: 'slug',
+                    code: 'DUPLICATE',
+                    message: 'That slug is already used.',
+                }]);
+            }
+            const created = await GalleryCategory.create(parsed);
+            return presentCategory(created);
+        },
+        async updateCategory(id, body) {
+            const item = await GalleryCategory.findById(id);
+            if (!item) throw new ApiError(404, 'NOT_FOUND', 'Gallery category was not found.');
+            const parsed = readCategoryBody(body, { partial: true, currentSlug: item.slug });
+            if (parsed.slug && parsed.slug !== item.slug) {
+                if (await GalleryCategory.findOne({ slug: parsed.slug })) {
+                    throw new ApiError(422, 'VALIDATION_ERROR', 'Gallery category is invalid.', [{
+                        field: 'slug',
+                        code: 'DUPLICATE',
+                        message: 'That slug is already used.',
+                    }]);
+                }
+                await GalleryPost.updateMany({ category: item.slug }, { $set: { category: parsed.slug } });
+            }
+            if (parsed.translations) {
+                parsed.translations = {
+                    en: { name: (parsed.translations.en && parsed.translations.en.name) || (item.translations && item.translations.en && item.translations.en.name) || '' },
+                    vi: { name: (parsed.translations.vi && parsed.translations.vi.name) || (item.translations && item.translations.vi && item.translations.vi.name) || '' },
+                };
+            }
+            Object.assign(item, parsed);
+            await item.save();
+            return presentCategory(item);
+        },
+        async reorderCategories(body) {
+            const ids = Array.isArray(body && body.ids) ? body.ids.map((value) => String(value)) : [];
+            if (!ids.length) {
+                throw new ApiError(422, 'VALIDATION_ERROR', 'Gallery category is invalid.', [{
+                    field: 'ids',
+                    code: 'REQUIRED',
+                    message: 'Category order is required.',
+                }]);
+            }
+            await Promise.all(ids.map((id, index) => GalleryCategory.updateOne(
+                { _id: id },
+                { $set: { sortOrder: (index + 1) * 10 } },
+            )));
+            return this.listAdminCategories();
+        },
+        async deleteCategory(id) {
+            const item = await GalleryCategory.findById(id);
+            if (!item) throw new ApiError(404, 'NOT_FOUND', 'Gallery category was not found.');
+            const usage = await GalleryPost.countDocuments({ category: item.slug });
+            if (usage > 0) {
+                throw new ApiError(409, 'IN_USE', 'This category still has gallery posts.');
+            }
+            await GalleryCategory.deleteOne({ _id: item._id });
+            return { deleted: true };
+        },
     };
+}
+
+function readCategoryName(value, field, errors) {
+    const name = cleanString(value);
+    if (!name) {
+        errors.push({ field, code: 'REQUIRED', message: 'Category name is required.' });
+        return '';
+    }
+    if (name.length > 80) {
+        errors.push({ field, code: 'TOO_LONG', message: 'Category name is too long.' });
+    }
+    return name;
+}
+
+function readCategoryBody(body, { partial = false, currentSlug = '' } = {}) {
+    if (!body || typeof body !== 'object' || Array.isArray(body)) {
+        throw new ApiError(400, 'BAD_REQUEST', 'Request body must be a JSON object.');
+    }
+    const errors = [];
+    let slug;
+    if (body.slug !== undefined || !partial) {
+        slug = cleanString(body.slug).toLowerCase();
+        if (!isValidCategorySlug(slug) || RESERVED_GALLERY_FILTERS.includes(slug)) {
+            errors.push({ field: 'slug', code: 'INVALID', message: 'Use a stable slug. all and video are reserved.' });
+        }
+    }
+    const enName = body.nameEn !== undefined || (body.translations && body.translations.en)
+        ? readCategoryName(body.nameEn || (body.translations && body.translations.en && body.translations.en.name), 'nameEn', errors)
+        : undefined;
+    const viName = body.nameVi !== undefined || (body.translations && body.translations.vi)
+        ? readCategoryName(body.nameVi || (body.translations && body.translations.vi && body.translations.vi.name), 'nameVi', errors)
+        : undefined;
+    if (!partial && (enName === undefined || viName === undefined)) {
+        if (enName === undefined) readCategoryName('', 'nameEn', errors);
+        if (viName === undefined) readCategoryName('', 'nameVi', errors);
+    }
+    let isActive;
+    if (body.isActive !== undefined) {
+        if (body.isActive === true || body.isActive === 'true') isActive = true;
+        else if (body.isActive === false || body.isActive === 'false') isActive = false;
+        else errors.push({ field: 'isActive', code: 'INVALID', message: 'isActive must be true or false.' });
+    } else if (!partial) {
+        isActive = true;
+    }
+    let sortOrder;
+    if (body.sortOrder !== undefined) {
+        sortOrder = Number(body.sortOrder);
+        if (!Number.isFinite(sortOrder) || sortOrder < -10000 || sortOrder > 10000) {
+            errors.push({ field: 'sortOrder', code: 'INVALID', message: 'Sort order is invalid.' });
+        }
+    }
+    if (errors.length) {
+        throw new ApiError(422, 'VALIDATION_ERROR', 'Gallery category is invalid.', errors);
+    }
+    const updates = {};
+    if (slug !== undefined) updates.slug = slug;
+    if (enName !== undefined || viName !== undefined) {
+        updates.translations = {
+            en: { name: enName !== undefined ? enName : '' },
+            vi: { name: viName !== undefined ? viName : '' },
+        };
+    }
+    if (isActive !== undefined) updates.isActive = isActive;
+    if (sortOrder !== undefined) updates.sortOrder = sortOrder;
+    if (partial && updates.translations) {
+        updates.translations = {
+            en: { name: enName !== undefined ? enName : undefined },
+            vi: { name: viName !== undefined ? viName : undefined },
+        };
+    }
+    return updates;
 }
 
 module.exports = { createGalleryService, GALLERY_CATEGORIES };

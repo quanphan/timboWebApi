@@ -532,3 +532,227 @@ test('art-of-making is a valid gallery category and stays independent from showA
     assert.equal(homeBoth.body.data.some((item) => item.id === created.body.data.id), true);
     assert.equal(homeBoth.body.data.some((item) => item.id === otherHome.body.data.id), true);
 });
+
+test('gallery categories seed defaults, stay bilingual, and cannot delete categories in use', async () => {
+    const listed = await request(context.baseUrl, '/api/gallery/categories');
+    assert.equal(listed.status, 200);
+    const slugs = listed.body.data.map((item) => item.slug);
+    assert.equal(slugs.includes('process'), true);
+    assert.equal(slugs.includes('art-of-making'), true);
+    assert.equal(slugs.includes('video'), false);
+    assert.equal(slugs.includes('all'), false);
+
+    const reserved = await request(context.baseUrl, '/api/admin/gallery/categories', {
+        method: 'POST',
+        token: adminToken,
+        body: { slug: 'video', nameEn: 'Video', nameVi: 'Video' },
+    });
+    assert.equal(reserved.status, 422);
+
+    const created = await request(context.baseUrl, '/api/admin/gallery/categories', {
+        method: 'POST',
+        token: adminToken,
+        body: { slug: 'workshop-notes', nameEn: 'Workshop notes', nameVi: 'Ghi chep xuong', sortOrder: 60 },
+    });
+    assert.equal(created.status, 201);
+    assert.equal(created.body.data.translations.en.name, 'Workshop notes');
+    assert.equal(created.body.data.translations.vi.name, 'Ghi chep xuong');
+
+    const publicAfter = await request(context.baseUrl, '/api/gallery/categories');
+    assert.equal(publicAfter.body.data.some((item) => item.slug === 'workshop-notes'), true);
+
+    const post = await request(context.baseUrl, '/api/admin/gallery', {
+        method: 'POST',
+        token: adminToken,
+        body: { title: 'Notes', category: 'workshop-notes', status: 'published' },
+    });
+    assert.equal(post.status, 201);
+
+    const blocked = await request(context.baseUrl, `/api/admin/gallery/categories/${created.body.data.id}`, {
+        method: 'DELETE',
+        token: adminToken,
+    });
+    assert.equal(blocked.status, 409);
+
+    const disabled = await request(context.baseUrl, `/api/admin/gallery/categories/${created.body.data.id}`, {
+        method: 'PATCH',
+        token: adminToken,
+        body: { isActive: false },
+    });
+    assert.equal(disabled.status, 200);
+    const hidden = await request(context.baseUrl, '/api/gallery/categories');
+    assert.equal(hidden.body.data.some((item) => item.slug === 'workshop-notes'), false);
+    const stillPublic = await request(context.baseUrl, '/api/gallery');
+    assert.equal(stillPublic.body.data.some((item) => item.id === post.body.data.id), true);
+});
+
+test('public gallery sorts by publishedAt newest first and keeps undated posts last', async () => {
+    const oldest = await request(context.baseUrl, '/api/admin/gallery', {
+        method: 'POST',
+        token: adminToken,
+        body: {
+            title: 'Oldest display',
+            category: 'process',
+            status: 'published',
+            publishedAt: '2020-01-01T00:00:00.000Z',
+            order: 1,
+        },
+    });
+    const newest = await request(context.baseUrl, '/api/admin/gallery', {
+        method: 'POST',
+        token: adminToken,
+        body: {
+            title: 'Newest display',
+            category: 'process',
+            status: 'published',
+            publishedAt: '2026-12-01T00:00:00.000Z',
+            order: 9,
+        },
+    });
+    const undated = await request(context.baseUrl, '/api/admin/gallery', {
+        method: 'POST',
+        token: adminToken,
+        body: {
+            title: 'No display date',
+            category: 'process',
+            status: 'published',
+            publishedAt: null,
+            order: 0,
+        },
+    });
+    assert.equal(oldest.status, 201);
+    assert.equal(newest.status, 201);
+    assert.equal(undated.status, 201);
+
+    const listed = await request(context.baseUrl, '/api/gallery');
+    const titles = listed.body.data.map((item) => item.title);
+    const newestIndex = titles.indexOf('Newest display');
+    const oldestIndex = titles.indexOf('Oldest display');
+    const undatedIndex = titles.indexOf('No display date');
+    assert.equal(newestIndex >= 0 && newestIndex < oldestIndex, true);
+    assert.equal(undatedIndex > oldestIndex, true);
+});
+
+test('gallery pin sorts first, patches independently, and paginates after sort', async () => {
+    const stamp = Date.now();
+    const unpinnedNew = await request(context.baseUrl, '/api/admin/gallery', {
+        method: 'POST',
+        token: adminToken,
+        body: {
+            title: `Pin ${stamp} unpinned new`,
+            category: 'process',
+            status: 'published',
+            publishedAt: '2026-09-01T00:00:00.000Z',
+            pin: false,
+        },
+    });
+    const pinnedOld = await request(context.baseUrl, '/api/admin/gallery', {
+        method: 'POST',
+        token: adminToken,
+        body: {
+            title: `Pin ${stamp} pinned old`,
+            category: 'process',
+            status: 'published',
+            publishedAt: '2021-01-01T00:00:00.000Z',
+            pin: true,
+        },
+    });
+    const unpinnedNone = await request(context.baseUrl, '/api/admin/gallery', {
+        method: 'POST',
+        token: adminToken,
+        body: {
+            title: `Pin ${stamp} unpinned none`,
+            category: 'process',
+            status: 'published',
+            publishedAt: null,
+        },
+    });
+    assert.equal(unpinnedNew.status, 201);
+    assert.equal(pinnedOld.status, 201);
+    assert.equal(unpinnedNone.status, 201);
+    assert.equal(unpinnedNew.body.data.pin, false);
+    assert.equal(pinnedOld.body.data.pin, true);
+
+    const listed = await request(context.baseUrl, '/api/gallery?limit=50');
+    const titles = listed.body.data.map((item) => item.title).filter((title) => title.includes(String(stamp)));
+    assert.deepEqual(titles, [
+        `Pin ${stamp} pinned old`,
+        `Pin ${stamp} unpinned new`,
+        `Pin ${stamp} unpinned none`,
+    ]);
+
+    const page = await request(context.baseUrl, '/api/gallery?page=1&limit=1');
+    assert.equal(page.status, 200);
+    assert.equal(page.body.meta.limit, 1);
+    assert.equal(page.body.data[0].pin, true);
+
+    const patched = await request(context.baseUrl, `/api/admin/gallery/${unpinnedNew.body.data.id}`, {
+        method: 'PATCH',
+        token: adminToken,
+        body: { pin: true },
+    });
+    assert.equal(patched.status, 200);
+    assert.equal(patched.body.data.pin, true);
+    assert.equal(patched.body.data.title, `Pin ${stamp} unpinned new`);
+
+    const afterPin = await request(context.baseUrl, '/api/gallery?page=1&limit=2');
+    assert.equal(afterPin.body.data[0].pin, true);
+    assert.equal(afterPin.body.data[1].pin, true);
+
+    const customer = await request(context.baseUrl, `/api/admin/gallery/${pinnedOld.body.data.id}`, {
+        method: 'PATCH',
+        token: customerToken,
+        body: { pin: false },
+    });
+    assert.equal(customer.status, 403);
+});
+
+test('gallery paginates 12 items after pin/date sort and video filter includes every category', async () => {
+    const stamp = Date.now();
+    const youtube = 'https://www.youtube.com/watch?v=dQw4w9WgXcQ';
+    for (let index = 0; index < 13; index += 1) {
+        const result = await request(context.baseUrl, '/api/admin/gallery', {
+            method: 'POST',
+            token: adminToken,
+            body: {
+                title: `Feed ${stamp} video ${String(index).padStart(2, '0')}`,
+                category: index % 2 === 0 ? 'process' : 'finish',
+                status: 'published',
+                publishedAt: `2026-01-${String((index % 28) + 1).padStart(2, '0')}T12:00:00.000Z`,
+                pin: index === 0,
+                media: [{
+                    id: `vid-${stamp}-${index}`,
+                    kind: 'video',
+                    sourceUrl: youtube,
+                    path: youtube,
+                    url: youtube,
+                    provider: 'youtube',
+                    videoId: 'dQw4w9WgXcQ',
+                }],
+            },
+        });
+        assert.equal(result.status, 201);
+    }
+
+    const page1 = await request(context.baseUrl, '/api/gallery?category=video&limit=12&page=1');
+    assert.equal(page1.status, 200);
+    assert.equal(page1.body.meta.limit, 12);
+    const ours1 = page1.body.data.filter((item) => item.title.includes(String(stamp)));
+    assert.equal(ours1.length <= 12, true);
+    assert.equal(ours1.every((item) => item.media.some((media) => media.kind === 'video')), true);
+    assert.equal(ours1.some((item) => item.category === 'process'), true);
+    assert.equal(ours1.some((item) => item.category === 'finish'), true);
+    assert.equal(ours1[0].pin, true);
+
+    const page2 = await request(context.baseUrl, '/api/gallery?category=video&limit=12&page=2');
+    assert.equal(page2.status, 200);
+    const page1Ids = page1.body.data.map((item) => item.id);
+    const page2Ids = page2.body.data.map((item) => item.id);
+    assert.equal(page1Ids.some((id) => page2Ids.includes(id)), false);
+
+    const processPage = await request(context.baseUrl, '/api/gallery?category=process&limit=12&page=1');
+    assert.equal(processPage.body.data.every((item) => item.category === 'process'), true);
+    assert.equal(page1.body.meta.total >= 13, true);
+    assert.equal(page1.body.meta.totalPages >= 2, true);
+});
+

@@ -17,6 +17,7 @@ const productSchema = new mongoose.Schema({
     status: { type: String, enum: ['draft', 'published'], default: 'published' },
     productType: { type: String, enum: ['custom-order', 'ready-stock'] },
     sortOrder: { type: Number, default: 0 },
+    pin: { type: Boolean, default: false },
     specs: mongoose.Schema.Types.Mixed,
     categoryId: { type: mongoose.Schema.Types.ObjectId, ref: 'CatalogTerm' },
     instrumentTypeId: { type: mongoose.Schema.Types.ObjectId, ref: 'CatalogTerm' },
@@ -31,6 +32,7 @@ const productSchema = new mongoose.Schema({
 productSchema.index({ type: 1, brand: 1 });
 productSchema.index({ status: 1, sortOrder: 1, _id: 1 });
 productSchema.index({ productType: 1, status: 1, sortOrder: 1 });
+productSchema.index({ pin: -1, sortOrder: 1, createdAt: -1, _id: -1 });
 productSchema.index({ slug: 1 }, { unique: true, sparse: true });
 productSchema.index({ 'legacy.id': 1 }, { unique: true, sparse: true });
 

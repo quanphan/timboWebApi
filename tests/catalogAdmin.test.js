@@ -454,6 +454,121 @@ test('series showHome defaults false and featured products follow series then pr
     assert.equal(bySeries.body.data.some((item) => item.status === 'draft'), false);
 });
 
+test('product listing pins first, then STT, then newest createdAt, and paginates', async () => {
+    const stamp = Date.now();
+    const created = [];
+    async function addProduct(name, fields) {
+        const result = await request(context.baseUrl, '/api/admin/catalog/products', {
+            method: 'POST',
+            token: adminToken,
+            body: {
+                name,
+                slug: `${name.toLowerCase().replace(/\s+/g, '-')}-${stamp}`,
+                status: 'published',
+                productType: 'custom-order',
+                sortOrder: 0,
+                description: String(stamp),
+                ...fields,
+            },
+        });
+        assert.equal(result.status, 201);
+        created.push(result.body.data.id);
+        return result.body.data;
+    }
+
+    const pinnedLate = await addProduct('Pinned late STT', { pin: true, sortOrder: 20 });
+    const pinnedEarly = await addProduct('Pinned early STT', { pin: true, sortOrder: 1 });
+    const unpinnedNew = await addProduct('Unpinned newer', { pin: false, sortOrder: 5 });
+    const unpinnedOld = await addProduct('Unpinned older', { pin: false, sortOrder: 5 });
+    const unpinnedMissing = await addProduct('Unpinned missing STT', { pin: false, sortOrder: 8 });
+    assert.equal(pinnedEarly.pin, true);
+    assert.equal(pinnedLate.pin, true);
+    assert.equal(unpinnedNew.pin, false);
+
+    const olderDoc = await Product.findById(unpinnedOld.id).select('_id');
+    const newerDoc = await Product.findById(unpinnedNew.id).select('_id');
+    const missingDoc = await Product.findById(unpinnedMissing.id).select('_id');
+    await Product.collection.updateOne({ _id: olderDoc._id }, { $set: { createdAt: new Date('2020-01-01T00:00:00.000Z') } });
+    await Product.collection.updateOne({ _id: newerDoc._id }, { $set: { createdAt: new Date('2024-06-01T00:00:00.000Z') } });
+    await Product.collection.updateOne({ _id: missingDoc._id }, { $unset: { sortOrder: 1 } });
+
+    const listed = await request(
+        context.baseUrl,
+        '/api/admin/catalog/products?sort=listing&search=Pinned&limit=20',
+        { token: adminToken },
+    );
+    assert.equal(listed.status, 200);
+    const pinnedNames = listed.body.data
+        .filter((item) => item.id === pinnedEarly.id || item.id === pinnedLate.id)
+        .map((item) => item.name);
+    assert.deepEqual(pinnedNames, ['Pinned early STT', 'Pinned late STT']);
+
+    const publicPage = await request(
+        context.baseUrl,
+        `/api/products?productType=custom-order&sort=listing&limit=10&page=1&search=${encodeURIComponent(String(stamp))}`,
+    );
+    assert.equal(publicPage.status, 200);
+    assert.equal(publicPage.body.data.length <= 10, true);
+    const ids = publicPage.body.data.map((item) => item.id);
+    const earlyIndex = ids.indexOf(pinnedEarly.id);
+    const lateIndex = ids.indexOf(pinnedLate.id);
+    const newIndex = ids.indexOf(unpinnedNew.id);
+    const oldIndex = ids.indexOf(unpinnedOld.id);
+    const missingIndex = ids.indexOf(unpinnedMissing.id);
+    assert.equal(earlyIndex >= 0 && lateIndex >= 0, true);
+    assert.equal(earlyIndex < lateIndex, true);
+    assert.equal(lateIndex < newIndex, true);
+    assert.equal(newIndex < oldIndex, true);
+    assert.equal(oldIndex < missingIndex, true);
+    assert.equal(publicPage.body.data[earlyIndex].pin, true);
+
+    const pinToggle = await request(context.baseUrl, `/api/admin/catalog/products/${unpinnedNew.id}`, {
+        method: 'PATCH',
+        token: adminToken,
+        body: { pin: true },
+    });
+    assert.equal(pinToggle.status, 200);
+    assert.equal(pinToggle.body.data.pin, true);
+    assert.equal(pinToggle.body.data.name, 'Unpinned newer');
+
+    const sttPatch = await request(context.baseUrl, `/api/admin/catalog/products/${unpinnedOld.id}`, {
+        method: 'PATCH',
+        token: adminToken,
+        body: { sortOrder: 3 },
+    });
+    assert.equal(sttPatch.status, 200);
+    assert.equal(sttPatch.body.data.sortOrder, 3);
+
+    const invalidStt = await request(context.baseUrl, `/api/admin/catalog/products/${unpinnedOld.id}`, {
+        method: 'PATCH',
+        token: adminToken,
+        body: { sortOrder: -1 },
+    });
+    assert.equal(invalidStt.status, 422);
+
+    const customerPin = await request(context.baseUrl, `/api/admin/catalog/products/${unpinnedOld.id}`, {
+        method: 'PATCH',
+        token: customerToken,
+        body: { pin: true },
+    });
+    assert.equal(customerPin.status, 403);
+
+    const page1 = await request(
+        context.baseUrl,
+        '/api/admin/catalog/products?sort=listing&limit=20&page=1',
+        { token: adminToken },
+    );
+    assert.equal(page1.status, 200);
+    assert.equal(page1.body.meta.limit, 20);
+    const pageSize100 = await request(
+        context.baseUrl,
+        '/api/admin/catalog/products?sort=listing&limit=100&page=1',
+        { token: adminToken },
+    );
+    assert.equal(pageSize100.status, 200);
+    assert.equal(pageSize100.body.meta.limit, 100);
+});
+
 test('uploads accept a real image, reject a fake image, and keep the stored path', async () => {
     const anonymous = await upload('', pngBytes, 'image/png', 'a.png', 'guitars');
     const customer = await upload(customerToken, pngBytes, 'image/png', '../secret.png', 'categories');

@@ -191,9 +191,15 @@ function createApiRouter(config) {
 
     router.post('/admin/uploads', authenticate, requirePermission('uploads.upload'), uploadImage, content.upload);
 
+    router.get('/gallery/categories', gallery.listPublicCategories);
     router.get('/gallery', gallery.listPublic);
     router.get('/gallery/:id', gallery.getPublic);
     router.post('/admin/gallery/uploads', authenticate, requireAdmin, galleryUpload, gallery.upload);
+    router.get('/admin/gallery/categories', authenticate, requireAdmin, gallery.listAdminCategories);
+    router.post('/admin/gallery/categories', authenticate, requireAdmin, requireJson, gallery.createCategory);
+    router.patch('/admin/gallery/categories/reorder', authenticate, requireAdmin, requireJson, gallery.reorderCategories);
+    router.patch('/admin/gallery/categories/:id', authenticate, requireAdmin, requireJson, gallery.updateCategory);
+    router.delete('/admin/gallery/categories/:id', authenticate, requireAdmin, gallery.deleteCategory);
     router.get('/admin/gallery', authenticate, requireAdmin, gallery.listAdmin);
     router.post('/admin/gallery', authenticate, requireAdmin, requireJson, gallery.create);
     router.get('/admin/gallery/:id', authenticate, requireAdmin, gallery.getAdmin);

@@ -9,7 +9,7 @@ const { cleanString, escapeRegex } = require('../utils/text');
 
 const PRODUCT_FIELDS = [
     'code', 'name', 'slug', 'description', 'descriptionDetail', 'price', 'unit',
-    'rating', 'brand', 'type', 'qty', 'image', 'images', 'status', 'productType', 'sortOrder', 'specs',
+    'rating', 'brand', 'type', 'qty', 'image', 'images', 'status', 'productType', 'sortOrder', 'pin', 'specs',
     'categoryId', 'instrumentTypeId', 'bodyShapeId', 'seriesId',
 ];
 
@@ -144,6 +144,13 @@ function validateProduct(body, { partial = false } = {}) {
         }
         updates.sortOrder = sortOrder;
     }
+    if (updates.pin !== undefined) {
+        if (typeof updates.pin !== 'boolean') {
+            throw new ApiError(422, 'VALIDATION_ERROR', 'Product data is invalid.', [
+                { field: 'pin', code: 'INVALID', message: 'pin must be a boolean.' },
+            ]);
+        }
+    }
     if (updates.specs !== undefined) {
         if (!updates.specs || typeof updates.specs !== 'object' || Array.isArray(updates.specs)) {
             throw new ApiError(422, 'VALIDATION_ERROR', 'Product data is invalid.', [
@@ -230,7 +237,9 @@ async function withRelations(products) {
         ...publicProduct(product),
         slug: product.slug || null,
         status: product.status || 'published',
-        sortOrder: product.sortOrder || 0,
+        sortOrder: Number.isInteger(product.sortOrder) ? product.sortOrder : null,
+        pin: product.pin === true,
+        createdAt: product.createdAt || null,
         specs: product.specs || null,
         productType: presentProductType(product),
         category: presentRelation(byId.get(String(product.categoryId))),
@@ -302,6 +311,39 @@ function buildSort(sort) {
     return { _id: -1 };
 }
 
+function listingPipeline(filter, skip, limit) {
+    return [
+        { $match: filter && Object.keys(filter).length ? filter : {} },
+        {
+            $addFields: {
+                pinSort: { $cond: [{ $eq: ['$pin', true] }, 1, 0] },
+                sttMissing: {
+                    $cond: [
+                        {
+                            $or: [
+                                { $eq: [{ $type: '$sortOrder' }, 'missing'] },
+                                { $eq: [{ $type: '$sortOrder' }, 'null'] },
+                            ],
+                        },
+                        1,
+                        0,
+                    ],
+                },
+            },
+        },
+        { $sort: { pinSort: -1, sttMissing: 1, sortOrder: 1, createdAt: -1, _id: -1 } },
+        { $skip: skip },
+        { $limit: limit },
+    ];
+}
+
+async function findProducts(filter, sort, skip, limit) {
+    if (sort === 'listing') {
+        return Product.aggregate(listingPipeline(filter, skip, limit));
+    }
+    return Product.find(filter).sort(buildSort(sort)).skip(skip).limit(limit);
+}
+
 function createProductService() {
     return {
         async list(query) {
@@ -309,7 +351,7 @@ function createProductService() {
             const filter = buildQuery(query);
             const [total, products] = await Promise.all([
                 Product.countDocuments(filter),
-                Product.find(filter).sort(buildSort(query.sort)).skip(skip).limit(limit),
+                findProducts(filter, query.sort, skip, limit),
             ]);
             return {
                 products: await withRelations(products),
@@ -318,11 +360,11 @@ function createProductService() {
         },
 
         async listAdmin(query) {
-            const { page, limit, skip } = parsePagination(query);
+            const { page, limit, skip } = parsePagination(query, 20, 100);
             const filter = buildQuery(query, { includeDrafts: true });
             const [total, products] = await Promise.all([
                 Product.countDocuments(filter),
-                Product.find(filter).sort(buildSort(query.sort || 'manual')).skip(skip).limit(limit),
+                findProducts(filter, query.sort || 'listing', skip, limit),
             ]);
             return {
                 products: await withRelations(products),

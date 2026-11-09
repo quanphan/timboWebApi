@@ -33,6 +33,24 @@ function createGalleryController(service) {
             }
             sendData(res, req.uploadResult, 201);
         }),
+        listPublicCategories: asyncHandler(async (req, res) => {
+            sendData(res, await service.listPublicCategories());
+        }),
+        listAdminCategories: asyncHandler(async (req, res) => {
+            sendData(res, await service.listAdminCategories());
+        }),
+        createCategory: asyncHandler(async (req, res) => {
+            sendData(res, await service.createCategory(req.body), 201);
+        }),
+        updateCategory: asyncHandler(async (req, res) => {
+            sendData(res, await service.updateCategory(req.params.id, req.body));
+        }),
+        reorderCategories: asyncHandler(async (req, res) => {
+            sendData(res, await service.reorderCategories(req.body));
+        }),
+        deleteCategory: asyncHandler(async (req, res) => {
+            sendData(res, await service.deleteCategory(req.params.id));
+        }),
     };
 }
 
