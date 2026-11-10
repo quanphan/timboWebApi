@@ -334,7 +334,7 @@ function stripAliasesFromOption(option, aliases) {
     return { option: next, changed };
 }
 
-function buildDeletePlan(docs, categoryId, option) {
+function buildDeletePlan(docs, categoryId, option, optionIndex) {
     const aliases = optionAliases(option, categoryId);
     const updates = [];
     for (const doc of docs) {
@@ -342,7 +342,9 @@ function buildDeletePlan(docs, categoryId, option) {
         let changed = false;
         let nextOptions = currentOptions;
         if (doc.id === categoryId) {
-            nextOptions = currentOptions.filter((item) => item.id !== option.id);
+            nextOptions = currentOptions.filter((item, itemIndex) => (
+                Number.isInteger(optionIndex) ? itemIndex !== optionIndex : item.id !== option.id
+            ));
             changed = nextOptions.length !== currentOptions.length;
         }
         nextOptions = nextOptions.map((item) => {
@@ -373,15 +375,43 @@ function resolveOptionId(optionId) {
     }
 }
 
-function findOption(category, optionId) {
+function findOption(category, optionId, codeHint) {
     const raw = resolveOptionId(optionId);
-    const index = (category.options || []).findIndex((item) => (
-        item.id === raw
-        || item.id === optionId
-        || optionCode(item, category.id) === raw
-        || optionCode(item, category.id) === optionId
+    const hint = typeof codeHint === 'string' ? codeHint.trim() : '';
+    const options = category.options || [];
+    const idMatches = [];
+    options.forEach((option, index) => {
+        if (option.id === raw || option.id === optionId) idMatches.push({ index, option });
+    });
+    if (idMatches.length === 1) return idMatches[0];
+    if (idMatches.length > 1) {
+        if (hint) {
+            const hit = idMatches.find((item) => optionCode(item.option, category.id) === hint);
+            if (hit) return hit;
+        }
+        return idMatches[0];
+    }
+    const index = options.findIndex((item) => (
+        optionCode(item, category.id) === raw || optionCode(item, category.id) === optionId
     ));
-    return { index, option: index >= 0 ? category.options[index] : null };
+    return { index, option: index >= 0 ? options[index] : null };
+}
+
+function optionIdTaken(category, id, code) {
+    return (category.options || []).some((item) => (
+        item.id === id || optionCode(item, category.id) === code
+    ));
+}
+
+function nextDuplicateCode(category, source) {
+    const base = optionCode(source, category.id);
+    for (let suffix = 2; suffix < 1000; suffix += 1) {
+        const code = `${base}-${suffix}`;
+        const id = `${category.id}.${code}`;
+        if (!CODE_PATTERN.test(code) || code.length > 40 || !isOptionId(id)) continue;
+        if (!optionIdTaken(category, id, code)) return code;
+    }
+    invalid([{ field: 'code', code: 'INVALID', message: 'Could not allocate a unique option code.' }]);
 }
 
 async function optionUsedInInquiries(option, categoryId, session) {
@@ -447,10 +477,10 @@ function createWizardSetupService() {
             return toAdminOption(next, category.id);
         },
 
-        async updateOption(categoryId, optionId, body) {
+        async updateOption(categoryId, optionId, body, codeHint) {
             const category = await CustomBuildOption.findOne({ id: categoryId });
             if (!category) throw new ApiError(404, 'NOT_FOUND', 'Custom build category was not found.');
-            const { index } = findOption(category, optionId);
+            const { index } = findOption(category, optionId, codeHint);
             if (index < 0) throw new ApiError(404, 'NOT_FOUND', 'Option was not found.');
             const current = category.options[index].toObject();
             assertImmutableIdentifiers(current, body, category.id);
@@ -473,38 +503,59 @@ function createWizardSetupService() {
             return toAdminOption(next, category.id);
         },
 
-        async duplicateOption(categoryId, optionId) {
+        async duplicateOption(categoryId, optionId, codeHint) {
             const category = await CustomBuildOption.findOne({ id: categoryId });
             if (!category) throw new ApiError(404, 'NOT_FOUND', 'Custom build category was not found.');
-            const { option: current } = findOption(category, optionId);
+            const { option: current } = findOption(category, optionId, codeHint);
             if (!current) throw new ApiError(404, 'NOT_FOUND', 'Option was not found.');
-            let suffix = 2;
-            let code = `${optionCode(current, category.id)}-${suffix}`;
-            while (category.options.some((item) => optionCode(item, category.id) === code)) {
-                suffix += 1;
-                code = `${optionCode(current, category.id)}-${suffix}`;
+            const source = optionPlain(current);
+            const code = nextDuplicateCode(category, current);
+            const attributes = source.attributes && typeof source.attributes === 'object' && !Array.isArray(source.attributes)
+                ? { ...source.attributes }
+                : {};
+            const oldCode = optionCode(current, category.id);
+            if (attributes.wizardId != null && String(attributes.wizardId) !== '') {
+                const wizardId = String(attributes.wizardId);
+                const wizardTaken = (category.options || []).some((item) => (
+                    item !== current && String(item.attributes?.wizardId || '') === wizardId
+                ));
+                if (wizardId === oldCode || wizardId === String(source.id) || wizardTaken) {
+                    attributes.wizardId = code;
+                }
             }
             const copy = optionFromBody(category, {
-                ...current.toObject(),
+                name: `${current.name} copy`.slice(0, NAME_MAX),
+                description: source.description,
                 code,
-                name: `${current.name} copy`,
+                active: source.active !== false,
+                imagePath: source.imagePath,
+                icon: source.icon,
                 isDefault: false,
                 defaultForInstrumentTypeIds: [],
+                sortOrder: (category.options || []).length,
+                translations: source.translations,
+                compatibility: source.compatibility,
+                attributes,
             });
+            if (copy.id === source.id || optionIdTaken(category, copy.id, copy.code)) {
+                throw new ApiError(409, 'CONFLICT', 'That option code already exists in this step.', [
+                    { field: 'code', code: 'DUPLICATE', message: 'Option code must be unique in this category.' },
+                ]);
+            }
             category.options.push(copy);
             category.markModified('options');
             await category.save();
             return toAdminOption(copy, category.id);
         },
 
-        async deleteOption(categoryId, optionId) {
+        async deleteOption(categoryId, optionId, codeHint) {
             const snapshots = (await CustomBuildOption.find().lean()).map((doc) => ({
                 id: doc.id,
                 options: (doc.options || []).map(optionPlain),
                 metadata: doc.metadata,
             }));
             try {
-                return await persistOptionDeleteWithTransaction(categoryId, optionId);
+                return await persistOptionDeleteWithTransaction(categoryId, optionId, codeHint);
             } catch (error) {
                 if (!(error instanceof ApiError && error.status < 500)) {
                     try {
@@ -538,14 +589,14 @@ function createWizardSetupService() {
     };
 }
 
-async function persistOptionDelete(categoryId, optionId, session) {
+async function persistOptionDelete(categoryId, optionId, session, codeHint) {
     const docsQuery = CustomBuildOption.find();
     if (session) docsQuery.session(session);
     const docs = await docsQuery;
     const category = docs.find((item) => item.id === categoryId);
     if (!category) throw new ApiError(404, 'NOT_FOUND', 'Custom build category was not found.');
-    const { option: current } = findOption(category, optionId);
-    if (!current) {
+    const { index, option: current } = findOption(category, optionId, codeHint);
+    if (!current || index < 0) {
         logSetup('delete-miss', { categoryId, optionId });
         throw new ApiError(404, 'NOT_FOUND', 'Option was not found.');
     }
@@ -560,18 +611,21 @@ async function persistOptionDelete(categoryId, optionId, session) {
             { field: 'id', code: 'IN_USE', message: 'This option is used by existing inquiries and cannot be deleted.' },
         ]);
     }
-    const plan = buildDeletePlan(docs, categoryId, option);
+    const plan = buildDeletePlan(docs, categoryId, option, index);
     if (await optionUsedInInquiries(option, categoryId, session)) {
         throw new ApiError(409, 'CONFLICT', 'This option is used by existing inquiries.', [
             { field: 'id', code: 'IN_USE', message: 'This option is used by existing inquiries and cannot be deleted.' },
         ]);
     }
-    const deletedIds = [...new Set([...(category.metadata?.deletedOptionIds || []), option.id])];
-    category.metadata = { ...(category.metadata || {}), deletedOptionIds: deletedIds };
-    category.markModified('metadata');
     const sourceUpdate = plan.updates.find((item) => item.id === categoryId);
     category.options = sourceUpdate?.options
-        || (category.options || []).map(optionPlain).filter((item) => item.id !== option.id);
+        || (category.options || []).map(optionPlain).filter((_, itemIndex) => itemIndex !== index);
+    const remainingSameId = (category.options || []).some((item) => item.id === option.id);
+    const deletedIds = remainingSameId
+        ? [...(category.metadata?.deletedOptionIds || [])]
+        : [...new Set([...(category.metadata?.deletedOptionIds || []), option.id])];
+    category.metadata = { ...(category.metadata || {}), deletedOptionIds: deletedIds };
+    category.markModified('metadata');
     category.markModified('options');
     await category.save(session ? { session } : undefined);
     for (const update of plan.updates) {
@@ -585,18 +639,20 @@ async function persistOptionDelete(categoryId, optionId, session) {
     const storedQuery = CustomBuildOption.findOne({ id: categoryId }).lean();
     if (session) storedQuery.session(session);
     const stored = await storedQuery;
-    if ((stored?.options || []).some((item) => item.id === option.id)) {
+    if ((stored?.options || []).some((item) => (
+        item.id === option.id && optionCode(item, categoryId) === optionCode(option, categoryId)
+    ))) {
         throw new ApiError(500, 'SERVER_ERROR', 'The option was not deleted.');
     }
     logSetup('delete-ok', { categoryId, optionId: option.id, cleaned: plan.updates.length });
     return { deleted: true, id: option.id, cleanedCategories: plan.updates.map((item) => item.id) };
 }
 
-async function persistOptionDeleteWithTransaction(categoryId, optionId) {
+async function persistOptionDeleteWithTransaction(categoryId, optionId, codeHint) {
     const session = await mongoose.startSession();
     try {
         session.startTransaction();
-        const result = await persistOptionDelete(categoryId, optionId, session);
+        const result = await persistOptionDelete(categoryId, optionId, session, codeHint);
         await session.commitTransaction();
         return result;
     } catch (error) {
@@ -606,7 +662,7 @@ async function persistOptionDeleteWithTransaction(categoryId, optionId) {
             // Session may already be aborted when transactions are unsupported.
         }
         if (isTransactionUnsupported(error)) {
-            return persistOptionDelete(categoryId, optionId);
+            return persistOptionDelete(categoryId, optionId, undefined, codeHint);
         }
         throw error;
     } finally {

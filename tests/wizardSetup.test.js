@@ -87,6 +87,8 @@ describe('custom build wizard setup', { concurrency: false }, () => {
         assert.equal(duplicate.status, 201);
         assert.equal(duplicate.body.data.isDefault, false);
         assert.match(duplicate.body.data.code, /semi-hollow-/);
+        assert.notEqual(duplicate.body.data.id, created.body.data.id);
+        assert.notEqual(duplicate.body.data.code, created.body.data.code);
 
         const clash = await request(context.baseUrl, '/api/admin/custom-build/setup/series/options', {
             method: 'POST',
@@ -94,6 +96,39 @@ describe('custom build wizard setup', { concurrency: false }, () => {
             body: { name: 'Headless again', code: 'headless' },
         });
         assert.equal(clash.status, 409);
+    });
+
+    test('duplicate allocates a new id even when that id is already taken by another code', async () => {
+        const created = await request(context.baseUrl, '/api/admin/custom-build/setup/radius/options', {
+            method: 'POST',
+            token: adminToken,
+            body: { name: '16 inch', code: 'dup-16' },
+        });
+        assert.equal(created.status, 201);
+        const category = await CustomBuildOption.findOne({ id: 'radius' });
+        category.options.push({
+            id: `${created.body.data.id}-2`,
+            code: 'occupied-16-2',
+            name: 'Occupied',
+            active: true,
+            sortOrder: 99,
+        });
+        category.markModified('options');
+        await category.save();
+
+        const duplicate = await request(
+            context.baseUrl,
+            `/api/admin/custom-build/setup/radius/options/${created.body.data.id}/duplicate?code=${created.body.data.code}`,
+            { method: 'POST', token: adminToken },
+        );
+        assert.equal(duplicate.status, 201);
+        assert.notEqual(duplicate.body.data.id, created.body.data.id);
+        assert.notEqual(duplicate.body.data.id, `${created.body.data.id}-2`);
+        assert.equal(duplicate.body.data.id.startsWith('radius.'), true);
+
+        const listed = await request(context.baseUrl, '/api/admin/custom-build/setup/radius', { token: adminToken });
+        const ids = listed.body.data.options.map((item) => item.id);
+        assert.equal(ids.filter((id) => id === duplicate.body.data.id).length, 1);
     });
 
     test('delete is blocked when an inquiry references the option', async () => {

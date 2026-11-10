@@ -24,13 +24,26 @@ function createWizardSetupController() {
             sendData(res, await service.createOption(req.params.categoryId, req.body), 201);
         }),
         updateOption: asyncHandler(async (req, res) => {
-            sendData(res, await service.updateOption(req.params.categoryId, decodeParam(req.params.optionId), req.body));
+            sendData(res, await service.updateOption(
+                req.params.categoryId,
+                decodeParam(req.params.optionId),
+                req.body,
+                decodeParam(req.query.code || ''),
+            ));
         }),
         duplicateOption: asyncHandler(async (req, res) => {
-            sendData(res, await service.duplicateOption(req.params.categoryId, decodeParam(req.params.optionId)), 201);
+            sendData(res, await service.duplicateOption(
+                req.params.categoryId,
+                decodeParam(req.params.optionId),
+                decodeParam(req.query.code || ''),
+            ), 201);
         }),
         deleteOption: asyncHandler(async (req, res) => {
-            sendData(res, await service.deleteOption(req.params.categoryId, decodeParam(req.params.optionId)));
+            sendData(res, await service.deleteOption(
+                req.params.categoryId,
+                decodeParam(req.params.optionId),
+                decodeParam(req.query.code || ''),
+            ));
         }),
         reorderOptions: asyncHandler(async (req, res) => {
             sendData(res, await service.reorderOptions(req.params.categoryId, req.body?.ids));
