@@ -8,6 +8,13 @@ const { COMPATIBILITY_KEYS } = require('./wizardGroups');
 const { toAdminCategory, toAdminOption, optionCode } = require('./presenters');
 const { ensureWizardCatalog } = require('./ensureWizardCatalog');
 const { validateCompatibilityValues, validateDefaultScopes, optionAliases } = require('./compatibility');
+const {
+    BODY_KEY,
+    NECK_KEY,
+    applySeriesConstructionAttributes,
+    inquiryUsesSeriesConstruction,
+    removedConstructionIds,
+} = require('./seriesConstruction');
 
 const NAME_MAX = 120;
 const TEXT_MAX = 800;
@@ -166,7 +173,11 @@ function optionFromBody(category, body, existing = {}) {
     }
 
     const resolvedImagePath = imagePath?.omitted ? (existing.imagePath || '') : (imagePath || '');
-    const resolvedAttributes = mergeAttributes(existing.attributes, body.attributes);
+    const resolvedAttributes = applySeriesConstructionAttributes(
+        category.id,
+        mergeAttributes(existing.attributes, body.attributes),
+        body.attributes,
+    );
     const sortOrder = Number.isFinite(Number(body.sortOrder))
         ? Number(body.sortOrder)
         : (Number.isFinite(Number(existing.sortOrder)) ? Number(existing.sortOrder) : (category.options || []).length);
@@ -380,6 +391,24 @@ async function optionUsedInInquiries(option, categoryId, session) {
     return inquiries.some((inquiry) => inquiryUsesOption(inquiry, option, categoryId));
 }
 
+async function assertConstructionDeletesAllowed(current, next) {
+    const removed = [
+        ...removedConstructionIds(current.attributes, next.attributes, BODY_KEY).map((id) => ({ id, field: 'bodyConstructionId' })),
+        ...removedConstructionIds(current.attributes, next.attributes, NECK_KEY).map((id) => ({ id, field: 'neckConstructionId' })),
+    ];
+    if (!removed.length) return;
+    const inquiries = await CustomBuildInquiry.find({}, { 'configuration.selections': 1, 'configuration.notes': 1 }).lean();
+    const blocked = removed.some((item) => inquiries.some((inquiry) => (
+        inquiryUsesOption(inquiry, current, 'series')
+        && inquiryUsesSeriesConstruction(inquiry, item.id, item.field)
+    )));
+    if (blocked) {
+        throw new ApiError(409, 'CONFLICT', 'This option is used by existing inquiries.', [
+            { field: 'attributes', code: 'IN_USE', message: 'A construction option is used by existing inquiries and cannot be deleted.' },
+        ]);
+    }
+}
+
 function logSetup(event, detail) {
     if (process.env.NODE_ENV === 'production') return;
     console.info(`[wizard-setup] ${event}`, detail);
@@ -433,6 +462,7 @@ function createWizardSetupService() {
                 throw new ApiError(409, 'CONFLICT', 'That option code already exists in this step.');
             }
             assertOptionRelations(next, await catalogById(), category.id, current);
+            await assertConstructionDeletesAllowed(current, next);
             const options = category.options.map((item, itemIndex) => (itemIndex === index ? next : item.toObject()));
             const touchesDefaults = hasOwn(body, 'isDefault')
                 || hasOwn(body, 'defaultForInstrumentTypeIds')

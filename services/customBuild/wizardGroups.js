@@ -83,7 +83,7 @@ function allowedCompatibilityGroupIds(categoryId) {
     if (categoryId === 'series') return ['instrument-type'];
     if (categoryId === 'body-shape') return [...BODY_SHAPE_UPSTREAM_GROUP_IDS];
     if (isShapeChildGroup(categoryId)) return [...BODY_SHAPE_UPSTREAM_GROUP_IDS, 'body-shape'];
-    const preceding = precedingGroups(categoryId);
+    const preceding = precedingGroups(categoryId).filter((item) => !isShapeChildGroup(item.id));
     const step = groupStep(categoryId);
     if (Number(step) >= 4) {
         return preceding

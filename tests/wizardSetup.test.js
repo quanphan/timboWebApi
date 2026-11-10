@@ -478,7 +478,13 @@ describe('custom build wizard setup', { concurrency: false }, () => {
         assert.equal(allowedCompatibilityKeys('pickup-config').includes('instrumentTypeIds'), true);
         assert.equal(allowedCompatibilityKeys('pickup-config').includes('seriesIds'), true);
         assert.equal(allowedCompatibilityKeys('pickup-config').includes('shapeIds'), true);
+        assert.equal(allowedCompatibilityKeys('pickup-config').includes('scaleIds'), false);
+        assert.equal(allowedCompatibilityKeys('pickup-config').includes('stringCounts'), false);
         assert.equal(allowedCompatibilityKeys('pickup-config').includes('bodyWoodIds'), false);
+        assert.equal(allowedCompatibilityKeys('body-wood').includes('instrumentTypeIds'), true);
+        assert.equal(allowedCompatibilityKeys('body-wood').includes('shapeIds'), true);
+        assert.equal(allowedCompatibilityKeys('body-wood').includes('scaleIds'), false);
+        assert.equal(allowedCompatibilityKeys('body-wood').includes('stringCounts'), false);
         assert.equal(allowedCompatibilityKeys('pickups').includes('pickupConfigIds'), true);
         assert.equal(allowedCompatibilityKeys('finish-type').includes('bodyWoodIds'), false);
         assert.equal(allowedCompatibilityKeys('body-wood').includes('seriesIds'), true);
@@ -574,6 +580,18 @@ describe('custom build wizard setup', { concurrency: false }, () => {
             },
         });
         assert.equal(pickupOk.status, 201);
+
+        const pickupScale = await request(context.baseUrl, '/api/admin/custom-build/setup/pickup-config/options', {
+            method: 'POST',
+            token: adminToken,
+            body: {
+                name: 'Scale pickup',
+                code: 'scale-pickup',
+                compatibility: { instrumentTypeIds: ['electric-guitar'], scaleIds: ['25.5'] },
+            },
+        });
+        assert.equal(pickupScale.status, 422);
+        assert.equal(pickupScale.body.error.details[0].code, 'FORWARD_COMPAT');
     });
 
     test('compatibility cannot newly reference inactive options and ignores them in the public catalog', async () => {
@@ -945,6 +963,158 @@ describe('custom build wizard setup', { concurrency: false }, () => {
             scale: created.body.data.id,
         }, catalog);
         assert.equal(rejected.some((item) => item.code === 'INCOMPATIBLE_OPTION'), true);
+
+        const wood = await request(context.baseUrl, '/api/admin/custom-build/setup/body-wood/options', {
+            method: 'POST',
+            token: adminToken,
+            body: {
+                name: 'Leftover wood',
+                code: 'leftover-wood',
+                compatibility: { instrumentTypeIds: ['electric-guitar'], shapeIds: ['compact-modern'] },
+            },
+        });
+        assert.equal(wood.status, 201);
+        const woodDoc = await CustomBuildOption.findOne({ id: 'body-wood' });
+        const storedWood = woodDoc.options.find((item) => item.id === wood.body.data.id);
+        storedWood.compatibility = {
+            ...(storedWood.compatibility || {}),
+            scaleIds: ['25.5'],
+            stringCounts: [6],
+        };
+        woodDoc.markModified('options');
+        await woodDoc.save();
+
+        const renamedWood = await request(
+            context.baseUrl,
+            `/api/admin/custom-build/setup/body-wood/options/${wood.body.data.id}`,
+            {
+                method: 'PATCH',
+                token: adminToken,
+                body: { name: 'Leftover wood renamed' },
+            },
+        );
+        assert.equal(renamedWood.status, 200);
+        assert.deepEqual(renamedWood.body.data.compatibility.shapeIds, ['compact-modern']);
+        assert.deepEqual(renamedWood.body.data.compatibility.scaleIds, ['25.5']);
+        assert.deepEqual(renamedWood.body.data.compatibility.stringCounts, [6]);
+
+        const listedAgain = await request(context.baseUrl, '/api/admin/custom-build/setup', { token: adminToken });
+        const laterCatalog = { categories: listedAgain.body.data.categories };
+        const laterOk = validateSelectionDependencies({
+            'instrument-type': 'instrument-type.electric-guitar',
+            'body-shape': compact.id,
+            scale: created.body.data.id,
+            'body-wood': wood.body.data.id,
+        }, laterCatalog);
+        assert.equal(laterOk.some((item) => item.field && String(item.field).includes('body-wood')), false);
+    });
+
+    test('series body and neck construction lists save independently and keep other series fields', async () => {
+        const created = await request(context.baseUrl, '/api/admin/custom-build/setup/series/options', {
+            method: 'POST',
+            token: adminToken,
+            body: {
+                name: 'Construction series A',
+                code: 'construction-series-a',
+                compatibility: { instrumentTypeIds: ['electric-guitar'] },
+                attributes: {
+                    bodyConstruction: [
+                        { translations: { en: { name: '1 Piece' }, vi: { name: '1 mảnh' } } },
+                        { translations: { en: { name: '2 Pieces' }, vi: { name: '2 mảnh' } } },
+                    ],
+                    neckConstruction: [
+                        { translations: { en: { name: '5-Piece' }, vi: { name: '5 mảnh' } } },
+                    ],
+                },
+            },
+        });
+        assert.equal(created.status, 201);
+        assert.equal(created.body.data.code, 'construction-series-a');
+        assert.equal(created.body.data.attributes.bodyConstruction[0].id, '1-piece');
+        assert.equal(created.body.data.attributes.bodyConstruction[1].id, '2-pieces');
+        assert.equal(created.body.data.attributes.neckConstruction[0].id, '5-piece');
+
+        const other = await request(context.baseUrl, '/api/admin/custom-build/setup/series/options', {
+            method: 'POST',
+            token: adminToken,
+            body: {
+                name: 'Construction series B',
+                code: 'construction-series-b',
+                attributes: {
+                    bodyConstruction: [{ translations: { en: { name: '4+ Pieces' } } }],
+                },
+            },
+        });
+        assert.equal(other.status, 201);
+        assert.equal(other.body.data.attributes.bodyConstruction[0].id, '4-pieces');
+        assert.equal(other.body.data.attributes.neckConstruction, undefined);
+
+        const renamed = await request(
+            context.baseUrl,
+            `/api/admin/custom-build/setup/series/options/${created.body.data.id}`,
+            {
+                method: 'PATCH',
+                token: adminToken,
+                body: {
+                    name: 'Construction series A renamed',
+                    attributes: {
+                        bodyConstruction: [
+                            { id: '1-piece', translations: { en: { name: 'Single piece' }, vi: { name: 'Một mảnh' } } },
+                            { id: '2-pieces', translations: { en: { name: 'Two pieces' }, vi: { name: 'Hai mảnh' } } },
+                        ],
+                        neckConstruction: [
+                            { id: '5-piece', translations: { en: { name: 'Five piece' } } },
+                            { translations: { en: { name: '3-Piece' } } },
+                        ],
+                    },
+                },
+            },
+        );
+        assert.equal(renamed.status, 200);
+        assert.equal(renamed.body.data.code, 'construction-series-a');
+        assert.deepEqual(renamed.body.data.compatibility.instrumentTypeIds, ['electric-guitar']);
+        assert.equal(renamed.body.data.attributes.bodyConstruction[0].id, '1-piece');
+        assert.equal(renamed.body.data.attributes.bodyConstruction[0].translations.en.name, 'Single piece');
+        assert.equal(renamed.body.data.attributes.neckConstruction[1].id, '3-piece');
+
+        const reloaded = await request(context.baseUrl, '/api/admin/custom-build/setup/series', { token: adminToken });
+        const seriesA = reloaded.body.data.options.find((item) => item.code === 'construction-series-a');
+        const seriesB = reloaded.body.data.options.find((item) => item.code === 'construction-series-b');
+        assert.equal(seriesA.attributes.bodyConstruction.length, 2);
+        assert.equal(seriesB.attributes.bodyConstruction[0].id, '4-pieces');
+        assert.notEqual(seriesA.attributes.bodyConstruction[0].id, seriesB.attributes.bodyConstruction[0].id);
+
+        const legacy = reloaded.body.data.options.find((item) => item.code === 'headless');
+        assert.equal(legacy.attributes.bodyConstruction, undefined);
+
+        await CustomBuildInquiry.create({
+            id: 'inq-setup-construction-1',
+            submissionKey: 'setup-construction-1',
+            customer: { name: 'Pat', email: 'pat-construction@example.com' },
+            configuration: {
+                selections: { series: created.body.data.id, bodyConstructionId: '1-piece' },
+            },
+            status: 'received',
+        });
+        const blocked = await request(
+            context.baseUrl,
+            `/api/admin/custom-build/setup/series/options/${created.body.data.id}`,
+            {
+                method: 'PATCH',
+                token: adminToken,
+                body: {
+                    name: 'Construction series A renamed',
+                    attributes: {
+                        bodyConstruction: [
+                            { id: '2-pieces', translations: { en: { name: 'Two pieces' } } },
+                        ],
+                        neckConstruction: renamed.body.data.attributes.neckConstruction,
+                    },
+                },
+            },
+        );
+        assert.equal(blocked.status, 409);
+        assert.equal(blocked.body.error.details[0].code, 'IN_USE');
     });
 });
 
