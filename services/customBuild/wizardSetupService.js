@@ -201,11 +201,16 @@ function optionFromBody(category, body, existing = {}) {
     };
 }
 
-function applyDefaultUniqueness(options, nextOption) {
+function optionsShareIdentity(left, right, categoryId) {
+    return String(left?.id) === String(right?.id)
+        && optionCode(left, categoryId) === optionCode(right, categoryId);
+}
+
+function applyDefaultUniqueness(options, nextOption, categoryId) {
     const claimed = new Set(nextOption.defaultForInstrumentTypeIds || []);
     return options.map((raw) => {
         const item = raw.toObject?.() || raw;
-        if (item.id === nextOption.id) return nextOption;
+        if (optionsShareIdentity(item, nextOption, categoryId)) return nextOption;
         const next = { ...item };
         if (nextOption.isDefault) next.isDefault = false;
         if (claimed.size) {
@@ -403,15 +408,93 @@ function optionIdTaken(category, id, code) {
     ));
 }
 
-function nextDuplicateCode(category, source) {
+function identitySets(options, categoryId) {
+    const ids = new Set();
+    const codes = new Set();
+    for (const item of options || []) {
+        if (item?.id) ids.add(String(item.id));
+        const code = optionCode(item, categoryId);
+        if (code) codes.add(String(code));
+    }
+    return { ids, codes };
+}
+
+function allocateUniqueCopyIdentity(category, source, extraOptions = []) {
     const base = optionCode(source, category.id);
+    const { ids, codes } = identitySets([...(category.options || []), ...extraOptions], category.id);
+    ids.add(String(source.id || ''));
+    codes.add(String(base || ''));
     for (let suffix = 2; suffix < 1000; suffix += 1) {
         const code = `${base}-${suffix}`;
         const id = `${category.id}.${code}`;
         if (!CODE_PATTERN.test(code) || code.length > 40 || !isOptionId(id)) continue;
-        if (!optionIdTaken(category, id, code)) return code;
+        if (ids.has(id) || codes.has(code)) continue;
+        return { id, code };
     }
     invalid([{ field: 'code', code: 'INVALID', message: 'Could not allocate a unique option code.' }]);
+}
+
+function nextDuplicateCode(category, source) {
+    return allocateUniqueCopyIdentity(category, source).code;
+}
+
+function countBy(values) {
+    const counts = new Map();
+    for (const value of values) {
+        const key = String(value || '');
+        if (!key) continue;
+        counts.set(key, (counts.get(key) || 0) + 1);
+    }
+    return counts;
+}
+
+function repairCollidingOptionIdentities(category) {
+    const options = (category.options || []).map(optionPlain);
+    const idCounts = countBy(options.map((item) => item.id));
+    const codeCounts = countBy(options.map((item) => optionCode(item, category.id)));
+    const changes = [];
+
+    options.forEach((option, index) => {
+        const currentCode = optionCode(option, category.id);
+        const duplicateId = (idCounts.get(String(option.id)) || 0) > 1;
+        const duplicateCode = (codeCounts.get(String(currentCode)) || 0) > 1;
+        if (!duplicateId && !duplicateCode) return;
+
+        const canonicalId = `${category.id}.${currentCode}`;
+        if (duplicateId && !duplicateCode && String(option.id) === canonicalId) return;
+
+        const others = options.filter((_, itemIndex) => itemIndex !== index);
+        const { ids, codes } = identitySets(others, category.id);
+        let nextId = canonicalId;
+        let nextCode = currentCode;
+        if (duplicateCode || ids.has(nextId) || codes.has(nextCode)) {
+            const allocated = allocateUniqueCopyIdentity(
+                { ...category, options: others },
+                { id: option.id, code: currentCode },
+            );
+            nextId = allocated.id;
+            nextCode = allocated.code;
+        }
+
+        if (nextId === option.id && nextCode === currentCode) return;
+        changes.push({
+            index,
+            from: { id: option.id, code: currentCode },
+            to: { id: nextId, code: nextCode },
+        });
+        option.id = nextId;
+        option.code = nextCode;
+        if (option.attributes && typeof option.attributes === 'object' && !Array.isArray(option.attributes)) {
+            if (option.attributes.wizardId != null && String(option.attributes.wizardId) !== '') {
+                option.attributes = { ...option.attributes, wizardId: nextCode };
+            }
+        }
+        idCounts.set(String(option.id), (idCounts.get(String(option.id)) || 0) + 1);
+        codeCounts.set(String(currentCode), Math.max(0, (codeCounts.get(String(currentCode)) || 1) - 1));
+        codeCounts.set(String(nextCode), (codeCounts.get(String(nextCode)) || 0) + 1);
+    });
+
+    return { options, changes };
 }
 
 async function optionUsedInInquiries(option, categoryId, session) {
@@ -452,6 +535,20 @@ function createWizardSetupService() {
             return { categories: docs.map(toAdminCategory) };
         },
 
+        async repairCollidingIdentities() {
+            const docs = await CustomBuildOption.find();
+            const report = [];
+            for (const doc of docs) {
+                const { options, changes } = repairCollidingOptionIdentities(doc);
+                if (!changes.length) continue;
+                doc.options = options;
+                doc.markModified('options');
+                await doc.save();
+                report.push({ categoryId: doc.id, changes });
+            }
+            return report;
+        },
+
         async getCategory(categoryId) {
             if (!isCategoryId(categoryId)) {
                 throw new ApiError(400, 'BAD_REQUEST', 'Category id is invalid.');
@@ -471,7 +568,11 @@ function createWizardSetupService() {
                 ]);
             }
             assertOptionRelations(next, await catalogById(), category.id);
-            category.options = applyDefaultUniqueness([...category.options.map((item) => item.toObject()), next], next);
+            category.options = applyDefaultUniqueness(
+                [...category.options.map((item) => item.toObject()), next],
+                next,
+                category.id,
+            );
             category.markModified('options');
             await category.save();
             return toAdminOption(next, category.id);
@@ -486,10 +587,12 @@ function createWizardSetupService() {
             assertImmutableIdentifiers(current, body, category.id);
             const next = optionFromBody(category, body, current);
             const duplicate = category.options.some((item, itemIndex) => (
-                itemIndex !== index && (item.id === next.id || optionCode(item, category.id) === next.code)
+                itemIndex !== index && optionCode(item, category.id) === next.code
             ));
             if (duplicate) {
-                throw new ApiError(409, 'CONFLICT', 'That option code already exists in this step.');
+                throw new ApiError(409, 'CONFLICT', 'That option code already exists in this step.', [
+                    { field: 'code', code: 'DUPLICATE', message: 'Option code must be unique in this category.' },
+                ]);
             }
             assertOptionRelations(next, await catalogById(), category.id, current);
             await assertConstructionDeletesAllowed(current, next);
@@ -497,7 +600,9 @@ function createWizardSetupService() {
             const touchesDefaults = hasOwn(body, 'isDefault')
                 || hasOwn(body, 'defaultForInstrumentTypeIds')
                 || hasOwn(body, 'active');
-            category.options = touchesDefaults ? applyDefaultUniqueness(options, next) : options;
+            category.options = touchesDefaults
+                ? applyDefaultUniqueness(options, next, category.id)
+                : options;
             category.markModified('options');
             await category.save();
             return toAdminOption(next, category.id);
@@ -509,24 +614,17 @@ function createWizardSetupService() {
             const { option: current } = findOption(category, optionId, codeHint);
             if (!current) throw new ApiError(404, 'NOT_FOUND', 'Option was not found.');
             const source = optionPlain(current);
-            const code = nextDuplicateCode(category, current);
+            const allocated = allocateUniqueCopyIdentity(category, current);
             const attributes = source.attributes && typeof source.attributes === 'object' && !Array.isArray(source.attributes)
                 ? { ...source.attributes }
                 : {};
-            const oldCode = optionCode(current, category.id);
             if (attributes.wizardId != null && String(attributes.wizardId) !== '') {
-                const wizardId = String(attributes.wizardId);
-                const wizardTaken = (category.options || []).some((item) => (
-                    item !== current && String(item.attributes?.wizardId || '') === wizardId
-                ));
-                if (wizardId === oldCode || wizardId === String(source.id) || wizardTaken) {
-                    attributes.wizardId = code;
-                }
+                attributes.wizardId = allocated.code;
             }
             const copy = optionFromBody(category, {
                 name: `${current.name} copy`.slice(0, NAME_MAX),
                 description: source.description,
-                code,
+                code: allocated.code,
                 active: source.active !== false,
                 imagePath: source.imagePath,
                 icon: source.icon,
@@ -537,6 +635,8 @@ function createWizardSetupService() {
                 compatibility: source.compatibility,
                 attributes,
             });
+            copy.id = allocated.id;
+            copy.code = allocated.code;
             if (copy.id === source.id || optionIdTaken(category, copy.id, copy.code)) {
                 throw new ApiError(409, 'CONFLICT', 'That option code already exists in this step.', [
                     { field: 'code', code: 'DUPLICATE', message: 'Option code must be unique in this category.' },
@@ -676,4 +776,6 @@ module.exports = {
     stripAliasesFromOption,
     buildDeletePlan,
     restoreCategorySnapshots,
+    repairCollidingOptionIdentities,
+    allocateUniqueCopyIdentity,
 };

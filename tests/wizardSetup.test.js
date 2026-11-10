@@ -5,6 +5,7 @@ const User = require('../models/User');
 const CustomBuildOption = require('../models/CustomBuildOption');
 const CustomBuildInquiry = require('../models/CustomBuildInquiry');
 const { seedDemoOptions } = require('../services/customBuild/seedDemoOptions');
+const { repairCollidingOptionIdentities } = require('../services/customBuild/wizardSetupService');
 const { request, startTestApp, stopTestApp } = require('./support/app');
 
 let context;
@@ -129,6 +130,100 @@ describe('custom build wizard setup', { concurrency: false }, () => {
         const listed = await request(context.baseUrl, '/api/admin/custom-build/setup/radius', { token: adminToken });
         const ids = listed.body.data.options.map((item) => item.id);
         assert.equal(ids.filter((id) => id === duplicate.body.data.id).length, 1);
+        assert.notEqual(duplicate.body.data.code, created.body.data.code);
+        assert.notEqual(duplicate.body.data.id, created.body.data.id);
+    });
+
+    test('repair realigns a copied radius that reused an id while keeping the matching code row', () => {
+        const repaired = repairCollidingOptionIdentities({
+            id: 'radius',
+            options: [
+                { id: 'radius.16', code: '16', name: '9.5"' },
+                { id: 'radius.16-2', code: '10', name: '10' },
+                { id: 'radius.16-2', code: '16-2', name: '16 copy' },
+                { id: 'radius.12', code: '12', name: '12' },
+            ],
+        });
+        assert.deepEqual(repaired.changes, [
+            { index: 1, from: { id: 'radius.16-2', code: '10' }, to: { id: 'radius.10', code: '10' } },
+        ]);
+        assert.deepEqual(
+            repaired.options.map((item) => ({ id: item.id, code: item.code })),
+            [
+                { id: 'radius.16', code: '16' },
+                { id: 'radius.10', code: '10' },
+                { id: 'radius.16-2', code: '16-2' },
+                { id: 'radius.12', code: '12' },
+            ],
+        );
+        const ids = repaired.options.map((item) => item.id);
+        const codes = repaired.options.map((item) => item.code);
+        assert.equal(new Set(ids).size, ids.length);
+        assert.equal(new Set(codes).size, codes.length);
+    });
+
+    test('radius compatibility can be updated when two options share an id but not a code', async () => {
+        const created = await request(context.baseUrl, '/api/admin/custom-build/setup/radius/options', {
+            method: 'POST',
+            token: adminToken,
+            body: {
+                name: 'Shared id radius',
+                code: 'shared-id-radius',
+                compatibility: {
+                    instrumentTypeIds: ['electric-guitar'],
+                    seriesIds: ['headless'],
+                    shapeIds: ['compact-modern'],
+                },
+            },
+        });
+        assert.equal(created.status, 201);
+        const sharedId = created.body.data.id;
+        const category = await CustomBuildOption.findOne({ id: 'radius' });
+        category.options.push({
+            id: sharedId,
+            code: 'shared-id-radius-copy',
+            name: 'Shared id radius copy',
+            active: true,
+            sortOrder: 98,
+            compatibility: {
+                instrumentTypeIds: ['bass'],
+                seriesIds: ['solid-body'],
+                shapeIds: ['double-cut'],
+            },
+        });
+        category.markModified('options');
+        await category.save();
+
+        const updated = await request(
+            context.baseUrl,
+            `/api/admin/custom-build/setup/radius/options/${sharedId}?code=shared-id-radius`,
+            {
+                method: 'PATCH',
+                token: adminToken,
+                body: {
+                    name: 'Shared id radius',
+                    compatibility: {
+                        instrumentTypeIds: ['electric-guitar', 'bass'],
+                        seriesIds: ['headless', 'solid-body'],
+                        shapeIds: ['compact-modern', 'double-cut'],
+                    },
+                },
+            },
+        );
+        assert.equal(updated.status, 200, JSON.stringify(updated.body));
+        assert.deepEqual(updated.body.data.compatibility.instrumentTypeIds, ['electric-guitar', 'bass']);
+        assert.deepEqual(updated.body.data.compatibility.seriesIds, ['headless', 'solid-body']);
+        assert.deepEqual(updated.body.data.compatibility.shapeIds, ['compact-modern', 'double-cut']);
+        assert.equal(updated.body.data.code, 'shared-id-radius');
+        assert.equal(updated.body.data.id, sharedId);
+
+        const reloaded = await request(context.baseUrl, '/api/admin/custom-build/setup/radius', { token: adminToken });
+        const original = reloaded.body.data.options.find((item) => item.code === 'shared-id-radius');
+        const copy = reloaded.body.data.options.find((item) => item.code === 'shared-id-radius-copy');
+        assert.deepEqual(original.compatibility.shapeIds, ['compact-modern', 'double-cut']);
+        assert.deepEqual(copy.compatibility.shapeIds, ['double-cut']);
+        assert.equal(copy.name, 'Shared id radius copy');
+        assert.equal(reloaded.body.data.options.filter((item) => item.id === sharedId).length, 2);
     });
 
     test('delete is blocked when an inquiry references the option', async () => {
