@@ -24,7 +24,14 @@ function mailConfig() {
 function recordingTransport(sent, options = {}) {
     return {
         async send(message) {
-            if (options.failTimes && sent.length < options.failTimes) {
+            if (options.failTo && message.to === options.failTo) {
+                const error = new Error('provider down');
+                error.name = 'AxiosError';
+                error.response = { status: 503, data: {} };
+                sent.push({ failed: true, to: message.to });
+                throw error;
+            }
+            if (options.failTimes && sent.filter((item) => item.failed).length < options.failTimes) {
                 const error = new Error('provider down');
                 error.name = 'AxiosError';
                 error.response = { status: 503, data: { email: 'lan@example.com' } };
@@ -36,6 +43,7 @@ function recordingTransport(sent, options = {}) {
             const storedInquiries = await CustomBuildInquiry.countDocuments();
             assert.equal(storedMessages + storedInquiries > 0, true);
             sent.push(message);
+            return { id: 're_test_accepted' };
         },
     };
 }
@@ -149,21 +157,83 @@ describe('admin notifications', { concurrency: false }, () => {
             name: 'Lan Pham',
             email: 'lan@example.com',
             message: 'Is the bass available?',
+            language: 'en',
         });
         assert.equal(created.received, true);
-        assert.equal(sent.length, 1);
-        assert.equal(sent[0].to, 'admin@example.com');
-        assert.match(sent[0].text, /Event: contact message/);
-        assert.match(sent[0].text, /Name: Lan Pham/);
-        assert.match(sent[0].text, /Email: lan@example.com/);
-        assert.match(sent[0].text, /Phone: Not provided/);
-        assert.match(sent[0].text, /Is the bass available\?/);
-        assert.match(sent[0].html, /Is the bass available\?/);
-        assert.match(sent[0].text, new RegExp(`Admin path: /admin/messages/${created.id}`));
-        assert.match(sent[0].text, new RegExp(`https://phanquanguitars.com/admin/messages/${created.id}`));
-        assert.equal(sent[0].text.includes('/api/admin/messages'), false);
-        assert.equal(sent[0].text.includes('lan@example.com?'), false);
-        assert.equal(sent[0].text.includes('re_test_key'), false);
+        assert.equal(sent.length, 2);
+        const admin = sent.find((item) => item.to === 'admin@example.com');
+        const customer = sent.find((item) => item.to === 'lan@example.com');
+        assert.equal(Boolean(admin), true);
+        assert.equal(Boolean(customer), true);
+        assert.match(admin.text, /Event: contact message/);
+        assert.match(admin.text, /Name: Lan Pham/);
+        assert.match(admin.text, /Email: lan@example.com/);
+        assert.match(admin.text, /Phone: Not provided/);
+        assert.match(admin.text, /Is the bass available\?/);
+        assert.match(admin.html, /Is the bass available\?/);
+        assert.match(admin.text, new RegExp(`Admin path: /admin/messages/${created.id}`));
+        assert.match(admin.text, new RegExp(`https://phanquanguitars.com/admin/messages/${created.id}`));
+        assert.match(admin.text, new RegExp(`Reference: ${created.id}`));
+        assert.equal(admin.text.includes('/api/admin/messages'), false);
+        assert.equal(admin.text.includes('lan@example.com?'), false);
+        assert.equal(admin.text.includes('re_test_key'), false);
+        assert.equal(customer.subject, 'Thank You for Contacting PhanQuan Guitars');
+        assert.match(customer.text, /Thank you for reaching out to PhanQuan Guitars/);
+        assert.match(customer.text, /We have successfully received your message/);
+        assert.match(customer.text, /Name: Lan Pham/);
+        assert.match(customer.text, /Email: lan@example.com/);
+        assert.match(customer.text, /Phone: Not provided/);
+        assert.match(customer.text, /Message: Is the bass available\?/);
+        assert.equal(customer.text.includes('Admin path'), false);
+        assert.equal(customer.text.includes('/admin/messages'), false);
+        assert.equal(customer.html.includes('/admin/messages'), false);
+        assert.equal(customer.text.includes(`Reference: ${created.id}`), false);
+        assert.equal(customer.text.includes(String(created.id)), false);
+    });
+
+    it('sends a Vietnamese contact confirmation without admin details', async () => {
+        const sent = [];
+        const service = createContactService({ notifications: notificationsFor(sent) });
+        await service.create({
+            name: 'Lan Pham',
+            email: 'lan-vi-contact@example.com',
+            phone: '0903083489',
+            message: 'Xin hoi dan con hang khong?',
+            language: 'vi',
+        });
+        const customer = sent.find((item) => item.to === 'lan-vi-contact@example.com');
+        assert.equal(customer.subject, 'Cảm ơn bạn đã liên hệ PhanQuan Guitars');
+        assert.match(customer.text, /Cảm ơn bạn đã liên hệ PhanQuan Guitars/);
+        assert.match(customer.text, /Chúng tôi đã nhận được tin nhắn của bạn/);
+        assert.match(customer.text, /Họ tên: Lan Pham/);
+        assert.match(customer.text, /Điện thoại: 0903083489/);
+        assert.match(customer.text, /Xin hoi dan con hang khong\?/);
+        assert.equal(customer.text.includes('Thank You for Contacting'), false);
+        assert.equal(customer.text.includes('Admin path'), false);
+        assert.equal(customer.html.includes('/admin/'), false);
+    });
+
+    it('still emails the workshop when the customer confirmation fails', async () => {
+        const sent = [];
+        const errors = [];
+        const original = console.error;
+        console.error = (line) => errors.push(String(line));
+        try {
+            const service = createContactService({
+                notifications: notificationsFor(sent, { failTo: 'hoa-fail@example.com' }),
+            });
+            const created = await service.create({
+                name: 'Hoa',
+                email: 'hoa-fail@example.com',
+                message: 'Need a setup',
+            });
+            assert.equal(created.received, true);
+            assert.equal(sent.some((item) => item && item.to === 'admin@example.com'), true);
+            assert.equal(sent.some((item) => item && item.subject), true);
+            assert.match(errors.join('\n'), /Customer notification failed/);
+        } finally {
+            console.error = original;
+        }
     });
 
     it('keeps the saved contact when the email provider fails', async () => {
@@ -184,9 +254,12 @@ describe('admin notifications', { concurrency: false }, () => {
             assert.equal(created.received, true);
             const stored = await Message.findById(created.id);
             assert.equal(stored.email, 'minh@example.com');
-            assert.equal(sent.some((item) => item && item.subject), false);
+            const customer = sent.find((item) => item && item.to === 'minh@example.com');
+            assert.equal(Boolean(customer && customer.subject), true);
+            assert.equal(sent.some((item) => item && item.to === 'admin@example.com'), false);
             const log = errors.join('\n');
             assert.match(log, /Admin notification failed/);
+            assert.equal(log.includes('Customer notification failed'), false);
             assert.equal(log.includes('re_test_key'), false);
             assert.equal(log.includes('minh@example.com'), false);
         } finally {
@@ -205,7 +278,9 @@ describe('admin notifications', { concurrency: false }, () => {
         const first = await service.create(body);
         const second = await service.create(body);
         assert.notEqual(first.id, second.id);
-        assert.equal(sent.length, 1);
+        assert.equal(sent.length, 2);
+        assert.equal(sent.filter((item) => item.to === 'admin@example.com').length, 1);
+        assert.equal(sent.filter((item) => item.to === 'an@example.com').length, 1);
         assert.equal(await Message.countDocuments({ email: 'an@example.com' }), 2);
     });
 

@@ -8,6 +8,7 @@ const { seedDemoOptions } = require('../services/customBuild/seedDemoOptions');
 const CustomBuildOption = require('../models/CustomBuildOption');
 const CustomBuildInquiry = require('../models/CustomBuildInquiry');
 const { request, startTestApp, stopTestApp } = require('./support/app');
+const { evaluateConfiguration } = require('../services/customBuild/validation');
 
 let context;
 let adminAccessToken;
@@ -22,6 +23,60 @@ const validSelections = {
 };
 
 describe('custom build', { concurrency: false }, () => {
+
+test('evaluateConfiguration skips required groups with no applicable options', () => {
+    const catalog = {
+        categories: [
+            {
+                id: 'instrument-type',
+                required: true,
+                selectionMode: 'single',
+                step: 1,
+                options: [{ id: 'instrument-type.electric-guitar', code: 'electric-guitar', active: true }],
+            },
+            { id: 'body-shape', required: true, selectionMode: 'single', step: 1, options: [] },
+            {
+                id: 'body-wood',
+                required: true,
+                selectionMode: 'single',
+                step: 2,
+                options: [{
+                    id: 'body-wood.mahogany',
+                    code: 'mahogany',
+                    active: true,
+                    compatibility: { instrumentTypeIds: ['bass'] },
+                }],
+            },
+            { id: 'neck-wood', required: true, selectionMode: 'single', step: 3, options: [] },
+            {
+                id: 'fingerboard',
+                required: true,
+                selectionMode: 'single',
+                step: 3,
+                options: [{ id: 'fingerboard.ebony', code: 'ebony', active: false }],
+            },
+            {
+                id: 'finish-type',
+                required: true,
+                selectionMode: 'single',
+                step: 5,
+                options: [{ id: 'finish-type.oil', code: 'oil', active: true }],
+            },
+        ],
+    };
+    const result = evaluateConfiguration({
+        selections: {
+            'instrument-type': 'instrument-type.electric-guitar',
+            'finish-type': 'finish-type.oil',
+        },
+    }, catalog);
+    assert.equal(result.errors.some((item) => item.field === 'selections.body-wood'), false);
+    assert.equal(result.errors.some((item) => item.field === 'selections.neck-wood'), false);
+    assert.equal(result.errors.some((item) => item.field === 'selections.fingerboard'), false);
+    assert.equal(result.errors.some((item) => item.field === 'selections.body-shape'), false);
+    assert.equal(result.errors.length, 0);
+    assert.equal(result.configuration.selections['finish-type'], 'finish-type.oil');
+});
 
 before(async () => {
     context = await startTestApp();

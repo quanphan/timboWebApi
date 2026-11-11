@@ -615,7 +615,11 @@ describe('custom build wizard setup', { concurrency: false }, () => {
         assert.equal(allowedCompatibilityKeys('body-wood').includes('shapeIds'), true);
         assert.equal(allowedCompatibilityKeys('body-wood').includes('scaleIds'), false);
         assert.equal(allowedCompatibilityKeys('body-wood').includes('stringCounts'), false);
-        assert.equal(allowedCompatibilityKeys('pickups').includes('pickupConfigIds'), true);
+        assert.equal(allowedCompatibilityKeys('pickups').includes('pickupConfigIds'), false);
+        assert.deepEqual(allowedCompatibilityKeys('pickups'), ['instrumentTypeIds', 'seriesIds', 'shapeIds']);
+        assert.deepEqual(allowedCompatibilityKeys('finish-color'), ['instrumentTypeIds', 'seriesIds', 'shapeIds']);
+        assert.deepEqual(allowedCompatibilityKeys('neck-profile'), ['instrumentTypeIds', 'seriesIds', 'shapeIds']);
+        assert.deepEqual(allowedCompatibilityKeys('engraving'), ['instrumentTypeIds', 'seriesIds', 'shapeIds']);
         assert.equal(allowedCompatibilityKeys('finish-type').includes('bodyWoodIds'), false);
         assert.equal(allowedCompatibilityKeys('body-wood').includes('seriesIds'), true);
 
@@ -687,6 +691,18 @@ describe('custom build wizard setup', { concurrency: false }, () => {
         assert.deepEqual(storedPickup.compatibility.instrumentTypeIds, ['electric-guitar']);
         assert.deepEqual(storedPickup.compatibility.seriesIds, ['solid-body']);
         assert.equal((storedPickup.compatibility.bodyWoodIds || []).length, 0);
+
+        const pickupConfigOnType = await request(context.baseUrl, '/api/admin/custom-build/setup/pickups/options', {
+            method: 'POST',
+            token: adminToken,
+            body: {
+                name: 'Forward pickup type',
+                code: 'forward-pickup-type',
+                compatibility: { pickupConfigIds: ['hh'] },
+            },
+        });
+        assert.equal(pickupConfigOnType.status, 422);
+        assert.equal(pickupConfigOnType.body.error.details[0].code, 'FORWARD_COMPAT');
 
         const pickupWood = await request(context.baseUrl, '/api/admin/custom-build/setup/finish-type/options', {
             method: 'POST',

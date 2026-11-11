@@ -12,6 +12,7 @@ const messageSchema = new mongoose.Schema({
     productId: String,
     productRef: String,
     draftId: String,
+    language: { type: String, enum: ['en', 'vi'] },
     createdAt: { type: Date, default: Date.now },
     legacy: {
         source: String,

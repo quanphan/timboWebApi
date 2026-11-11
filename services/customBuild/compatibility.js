@@ -4,6 +4,7 @@ const {
     allowedCompatibilityKeys,
     groupStep,
     isShapeChildGroup,
+    usesTypeSeriesShapeCompatibility,
 } = require('./wizardGroups');
 const { optionCode } = require('./presenters');
 
@@ -108,13 +109,41 @@ function constraintAllowsSelection(allowed, selectedAliases) {
     return allowed.some((value) => selectedAliases.has(String(value)));
 }
 
+function optionMatchesSelections(option, category, selections, catalog) {
+    const compatibility = option?.compatibility && typeof option.compatibility === 'object'
+        ? option.compatibility
+        : {};
+    const byId = new Map((catalog?.categories || []).map((item) => [item.id, item]));
+    const allowedKeys = new Set(allowedCompatibilityKeys(category.id));
+    for (const key of COMPATIBILITY_KEYS) {
+        if (!allowedKeys.has(key)) continue;
+        const targetCategoryId = COMPATIBILITY_KEY_CATEGORIES[key];
+        const targetCategory = byId.get(targetCategoryId);
+        const selectedAliases = selectionAliasesForId(targetCategory, selections?.[targetCategoryId]);
+        if (!constraintAllowsSelection(compatibility[key], selectedAliases)) return false;
+    }
+    return true;
+}
+
+function categoryHasApplicableOptions(category, selections, catalog) {
+    const options = (category?.options || []).filter((item) => item && item.active !== false);
+    if (!options.length) return false;
+    return options.some((option) => optionMatchesSelections(option, category, selections, catalog));
+}
+
 function validateSelectionDependencies(selections, catalog) {
     const errors = [];
     if (!selections || !catalog?.categories) return errors;
     const byId = new Map(catalog.categories.map((category) => [category.id, category]));
     for (const category of catalog.categories) {
         const step = category.step ?? category.metadata?.step ?? groupStep(category.id);
-        if (Number(step) < 4 && !isShapeChildGroup(category.id) && category.id !== 'series' && category.id !== 'body-shape') continue;
+        if (
+            Number(step) < 4
+            && !isShapeChildGroup(category.id)
+            && !usesTypeSeriesShapeCompatibility(category.id)
+            && category.id !== 'series'
+            && category.id !== 'body-shape'
+        ) continue;
         const selectedId = selections[category.id];
         if (!selectedId) continue;
         const option = (category.options || []).find((item) => item.id === selectedId)
@@ -197,4 +226,5 @@ module.exports = {
     validateCompatibilityValues,
     validateSelectionDependencies,
     validateDefaultScopes,
+    categoryHasApplicableOptions,
 };

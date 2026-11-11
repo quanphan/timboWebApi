@@ -74,15 +74,38 @@ function groupStep(categoryId) {
 
 const SHAPE_CHILD_GROUP_IDS = new Set(['scale', 'string-count', 'radius']);
 const BODY_SHAPE_UPSTREAM_GROUP_IDS = ['instrument-type', 'series'];
+const ROOT_COMPATIBILITY_GROUP_IDS = ['instrument-type', 'series', 'body-shape'];
+const TYPE_SERIES_SHAPE_COMPAT_GROUP_IDS = new Set([
+    'scale',
+    'string-count',
+    'radius',
+    'neck-construction',
+    'neck-profile',
+    'fret-spec',
+    'pickup-config',
+    'pickups',
+    'electronics',
+    'tuners',
+    'hardware',
+    'bridge',
+    'finish-color',
+    'finish-type',
+    'inlay',
+    'engraving',
+]);
 
 function isShapeChildGroup(categoryId) {
     return SHAPE_CHILD_GROUP_IDS.has(String(categoryId || ''));
 }
 
+function usesTypeSeriesShapeCompatibility(categoryId) {
+    return TYPE_SERIES_SHAPE_COMPAT_GROUP_IDS.has(String(categoryId || ''));
+}
+
 function allowedCompatibilityGroupIds(categoryId) {
     if (categoryId === 'series') return ['instrument-type'];
     if (categoryId === 'body-shape') return [...BODY_SHAPE_UPSTREAM_GROUP_IDS];
-    if (isShapeChildGroup(categoryId)) return [...BODY_SHAPE_UPSTREAM_GROUP_IDS, 'body-shape'];
+    if (usesTypeSeriesShapeCompatibility(categoryId)) return [...ROOT_COMPATIBILITY_GROUP_IDS];
     const preceding = precedingGroups(categoryId).filter((item) => !isShapeChildGroup(item.id));
     const step = groupStep(categoryId);
     if (Number(step) >= 4) {
@@ -104,7 +127,10 @@ module.exports = {
     COMPATIBILITY_KEY_CATEGORIES,
     SHAPE_CHILD_GROUP_IDS,
     BODY_SHAPE_UPSTREAM_GROUP_IDS,
+    ROOT_COMPATIBILITY_GROUP_IDS,
+    TYPE_SERIES_SHAPE_COMPAT_GROUP_IDS,
     isShapeChildGroup,
+    usesTypeSeriesShapeCompatibility,
     groupOrderIndex,
     precedingGroups,
     groupStep,

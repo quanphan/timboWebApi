@@ -56,6 +56,7 @@ function createContactService({ notifications } = {}) {
             const draftId = inquiryType === 'custom-guitar'
                 ? optionalField(body.draftId, DRAFT_ID_MAX, 'draftId', errors)
                 : undefined;
+            const language = cleanString(body.language).toLowerCase();
             if (errors.length) {
                 throw new ApiError(422, 'VALIDATION_ERROR', 'Contact message is invalid.', errors);
             }
@@ -69,6 +70,7 @@ function createContactService({ notifications } = {}) {
                 productId,
                 productRef,
                 draftId,
+                language: language === 'vi' || language === 'en' ? language : undefined,
             });
             await notify.notifyContact(saved);
             return { id: String(saved._id), received: true };

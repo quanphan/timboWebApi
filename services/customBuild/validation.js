@@ -1,5 +1,5 @@
 const { ApiError } = require('../../utils/errors');
-const { validateSelectionDependencies } = require('./compatibility');
+const { categoryHasApplicableOptions, validateSelectionDependencies } = require('./compatibility');
 const { isCalculatedValueField } = require('./fields');
 const { isPlainObject } = require('./objects');
 
@@ -167,7 +167,7 @@ function evaluateConfiguration(payload, catalog, prefix = '') {
             const selectionField = `${selectionsField}.${category.id}`;
 
             if (value === undefined) {
-                if (category.required) {
+                if (category.required && categoryHasApplicableOptions(category, payload.selections, catalog)) {
                     errors.push(issue(selectionField, 'REQUIRED', 'This category is required.'));
                 }
                 continue;
@@ -181,7 +181,7 @@ function evaluateConfiguration(payload, catalog, prefix = '') {
                 continue;
             }
             if (Array.isArray(normalized) && normalized.length === 0) {
-                if (category.required) {
+                if (category.required && categoryHasApplicableOptions(category, payload.selections, catalog)) {
                     errors.push(issue(selectionField, 'REQUIRED', 'Choose at least one option for this category.'));
                 }
                 continue;

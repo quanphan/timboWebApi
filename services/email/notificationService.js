@@ -7,6 +7,9 @@ const {
     customBuildWorkshopEmail,
     loadWizardCatalog,
 } = require('./customBuildInquiryEmail');
+const { contactCustomerEmail } = require('./contactCustomerEmail');
+
+const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 function contactAdminPath(id) {
     return `/admin/messages/${encodeURIComponent(String(id))}`;
@@ -221,13 +224,29 @@ function contactDedupeKey(record) {
     });
 }
 
-function logProviderError(error) {
+function logProviderError(error, message = 'Admin notification failed') {
     console.error(JSON.stringify({
         level: 'error',
-        message: 'Admin notification failed',
+        message,
         name: error && error.name ? error.name : 'Error',
         status: error && error.response ? error.response.status || null : null,
     }));
+}
+
+function logEmailAccepted(eventType, providerId) {
+    if (!providerId) return;
+    console.info(JSON.stringify({
+        level: 'info',
+        message: 'Email accepted by Resend',
+        eventType,
+        providerId,
+    }));
+}
+
+function customerRecipient(email) {
+    const value = oneLine(email).toLowerCase();
+    if (!EMAIL_PATTERN.test(value) || value.length > 254) return '';
+    return value;
 }
 
 function isDuplicateKey(error) {
@@ -268,10 +287,17 @@ function createNotificationService(config = {}, dependencies = {}) {
         const claimed = await claim(eventType, dedupeKey, resourceId);
         if (!claimed) return { sent: false, reason: 'duplicate' };
         try {
-            await transport.send({ from, ...message, to: recipient || to });
-            return { sent: true };
+            const payload = { from, ...message, to: recipient || to };
+            const accepted = await transport.send(payload);
+            logEmailAccepted(eventType, accepted && accepted.id);
+            return { sent: true, providerId: accepted && accepted.id ? accepted.id : null };
         } catch (error) {
-            logProviderError(error);
+            logProviderError(
+                error,
+                String(eventType).endsWith('-customer')
+                    ? 'Customer notification failed'
+                    : 'Admin notification failed',
+            );
             try {
                 await release(eventType, dedupeKey);
             } catch (releaseError) {
@@ -283,13 +309,30 @@ function createNotificationService(config = {}, dependencies = {}) {
 
     return {
         async notifyContact(record) {
+            const resourceId = String(record._id || record.id);
+            const dedupeKey = contactDedupeKey(record);
+            let admin = { sent: false, reason: 'provider' };
+            let customer = { sent: false, reason: 'provider' };
             try {
-                const message = contactMessage(record, bases);
-                return await deliver('contact', contactDedupeKey(record), String(record._id || record.id), message);
+                admin = await deliver('contact', dedupeKey, resourceId, contactMessage(record, bases));
             } catch (error) {
-                logProviderError(error);
-                return { sent: false, reason: 'provider' };
+                logProviderError(error, 'Admin notification failed');
             }
+            try {
+                const recipient = customerRecipient(record.email);
+                customer = recipient
+                    ? await deliver(
+                        'contact-customer',
+                        dedupeKey,
+                        resourceId,
+                        contactCustomerEmail(record),
+                        recipient,
+                    )
+                    : { sent: false, reason: 'invalid' };
+            } catch (error) {
+                logProviderError(error, 'Customer notification failed');
+            }
+            return { admin, customer };
         },
         async notifyCustomBuild(record) {
             try {
@@ -358,6 +401,7 @@ function createNotificationService(config = {}, dependencies = {}) {
 module.exports = {
     createNotificationService,
     contactMessage,
+    contactCustomerEmail,
     customBuildMessage,
     customBuildCustomerMessage,
     serviceCartAdminMessage,
