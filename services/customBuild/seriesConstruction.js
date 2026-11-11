@@ -3,6 +3,7 @@ const NECK_KEY = 'neckConstruction';
 const ID_PATTERN = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
 const ID_MAX = 40;
 const NAME_MAX = 80;
+const DESC_MAX = 800;
 
 function trimText(value) {
     return typeof value === 'string' ? value.trim() : '';
@@ -56,6 +57,16 @@ function sanitizeConstructionList(list) {
         if (!item || typeof item !== 'object' || Array.isArray(item)) continue;
         const enName = trimText(item.translations?.en?.name || item.enName || item.name).slice(0, NAME_MAX);
         const viName = trimText(item.translations?.vi?.name || item.viName).slice(0, NAME_MAX);
+        const enDescription = trimText(
+            item.translations?.en?.description
+            || item.enDescription
+            || (typeof item.description === 'string' ? item.description : item.description?.en),
+        ).slice(0, DESC_MAX);
+        const viDescription = trimText(
+            item.translations?.vi?.description
+            || item.viDescription
+            || (typeof item.description === 'object' && item.description ? item.description.vi : ''),
+        ).slice(0, DESC_MAX);
         if (!enName && !viName) continue;
         const lockedId = trimText(item.id);
         let id = lockedId;
@@ -71,8 +82,8 @@ function sanitizeConstructionList(list) {
             active: item.active !== false,
             name: enName || viName,
             translations: {
-                en: { name: enName || viName },
-                vi: { name: viName || enName },
+                en: { name: enName || viName, description: enDescription },
+                vi: { name: viName || enName, description: viDescription },
             },
             ...(pieceCount != null ? { pieceCount } : {}),
         });

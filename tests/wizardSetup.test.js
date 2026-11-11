@@ -863,10 +863,108 @@ describe('custom build wizard setup', { concurrency: false }, () => {
         assert.equal(renamed.body.data.attributes.wizardId, 'rename-preserve-series');
         assert.equal(renamed.body.data.attributes.finish, 'nitro');
         assert.equal(renamed.body.data.translations.en.description, 'Boutique line');
+        assert.equal(renamed.body.data.translations.vi.description, 'Dòng boutique');
 
         const related = await request(context.baseUrl, '/api/admin/custom-build/setup/body-shape', { token: adminToken });
         const relatedShape = related.body.data.options.find((item) => item.id === other.body.data.id);
         assert.deepEqual(relatedShape.compatibility.seriesIds, otherCompat);
+    });
+
+    test('option descriptions stay independent per language and survive partial updates', async () => {
+        const created = await request(context.baseUrl, '/api/admin/custom-build/setup/body-wood/options', {
+            method: 'POST',
+            token: adminToken,
+            body: {
+                name: 'Alder',
+                code: 'alder-desc-independent',
+                description: { en: 'Light body wood', vi: 'Gỗ thân nhẹ' },
+            },
+        });
+        assert.equal(created.status, 201);
+        assert.equal(created.body.data.description, 'Light body wood');
+        assert.equal(created.body.data.translations.en.description, 'Light body wood');
+        assert.equal(created.body.data.translations.vi.description, 'Gỗ thân nhẹ');
+
+        const enOnly = await request(context.baseUrl, '/api/admin/custom-build/setup/inlay/options', {
+            method: 'POST',
+            token: adminToken,
+            body: {
+                name: 'Offset dots',
+                code: 'offset-dots-en-only',
+                translations: { en: { name: 'Offset dots', description: 'English only' }, vi: { name: 'Chấm lệch' } },
+            },
+        });
+        assert.equal(enOnly.status, 201);
+        assert.equal(enOnly.body.data.translations.en.description, 'English only');
+        assert.equal(enOnly.body.data.translations.vi.description, '');
+
+        const viOnly = await request(context.baseUrl, '/api/admin/custom-build/setup/inlay/options', {
+            method: 'POST',
+            token: adminToken,
+            body: {
+                name: 'Side dots',
+                code: 'side-dots-vi-only',
+                translations: { en: { name: 'Side dots' }, vi: { name: 'Chấm hông', description: 'Chỉ tiếng Việt' } },
+            },
+        });
+        assert.equal(viOnly.status, 201);
+        assert.equal(viOnly.body.data.translations.vi.description, 'Chỉ tiếng Việt');
+        assert.equal(viOnly.body.data.translations.en.description, '');
+
+        const patchedEn = await request(
+            context.baseUrl,
+            `/api/admin/custom-build/setup/body-wood/options/${created.body.data.id}`,
+            {
+                method: 'PATCH',
+                token: adminToken,
+                body: { translations: { en: { description: 'Updated EN' } } },
+            },
+        );
+        assert.equal(patchedEn.status, 200);
+        assert.equal(patchedEn.body.data.translations.en.description, 'Updated EN');
+        assert.equal(patchedEn.body.data.translations.vi.description, 'Gỗ thân nhẹ');
+
+        const patchedVi = await request(
+            context.baseUrl,
+            `/api/admin/custom-build/setup/body-wood/options/${created.body.data.id}`,
+            {
+                method: 'PATCH',
+                token: adminToken,
+                body: { translations: { vi: { description: 'Mô tả mới' } } },
+            },
+        );
+        assert.equal(patchedVi.status, 200);
+        assert.equal(patchedVi.body.data.translations.en.description, 'Updated EN');
+        assert.equal(patchedVi.body.data.translations.vi.description, 'Mô tả mới');
+
+        const series = await request(context.baseUrl, '/api/admin/custom-build/setup/series/options', {
+            method: 'POST',
+            token: adminToken,
+            body: {
+                name: 'Desc series',
+                code: 'desc-construction-series',
+                attributes: {
+                    wizardId: 'desc-construction-series',
+                    bodyConstruction: [{
+                        enName: '1 Piece',
+                        viName: '1 mảnh',
+                        enDescription: 'Solid blank',
+                        viDescription: 'Thân nguyên khối',
+                    }],
+                    neckConstruction: [{
+                        translations: {
+                            en: { name: '3-Piece', description: 'Laminated neck' },
+                            vi: { name: '3 mảnh', description: 'Cần ghép' },
+                        },
+                    }],
+                },
+            },
+        });
+        assert.equal(series.status, 201);
+        assert.equal(series.body.data.attributes.bodyConstruction[0].translations.en.description, 'Solid blank');
+        assert.equal(series.body.data.attributes.bodyConstruction[0].translations.vi.description, 'Thân nguyên khối');
+        assert.equal(series.body.data.attributes.neckConstruction[0].translations.en.description, 'Laminated neck');
+        assert.equal(series.body.data.attributes.neckConstruction[0].translations.vi.description, 'Cần ghép');
     });
 
     test('existing option identifiers cannot be changed through the API', async () => {

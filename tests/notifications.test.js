@@ -40,9 +40,69 @@ function recordingTransport(sent, options = {}) {
     };
 }
 
+function sampleCatalog() {
+    return {
+        categories: [
+            {
+                id: 'instrument-type',
+                options: [{
+                    id: 'instrument-type.electric-guitar',
+                    code: 'electric-guitar',
+                    name: 'Electric Guitar',
+                    translations: { en: { name: 'Electric Guitar' }, vi: { name: 'Guitar điện' } },
+                    attributes: {},
+                }],
+            },
+            {
+                id: 'series',
+                options: [{
+                    id: 'series.classic',
+                    code: 'classic',
+                    name: 'Classic',
+                    translations: { en: { name: 'Classic' }, vi: { name: 'Classic' } },
+                    attributes: {},
+                }],
+            },
+            {
+                id: 'body-shape',
+                options: [{
+                    id: 'body-shape.double-cut',
+                    code: 'double-cut',
+                    name: 'Double cut',
+                    translations: { en: { name: 'Double cut' }, vi: { name: 'Double Cut' } },
+                    attributes: {},
+                }],
+            },
+            {
+                id: 'scale',
+                options: [{
+                    id: 'scale.25-5',
+                    code: '25-5',
+                    name: '25.5″',
+                    translations: { en: { name: '25.5″' }, vi: { name: '25.5″' } },
+                    attributes: { display: '25.5″', wizardId: '25.5' },
+                }],
+            },
+            {
+                id: 'string-count',
+                options: [{
+                    id: 'string-count.6',
+                    code: '6',
+                    name: '6 strings',
+                    translations: { en: { name: '6 strings' }, vi: { name: '6 dây' } },
+                    attributes: { value: 6, wizardId: '6' },
+                }],
+            },
+        ],
+    };
+}
+
 function notificationsFor(sent, options) {
     return createNotificationService(mailConfig(), {
         transport: recordingTransport(sent, options),
+        catalog: Object.prototype.hasOwnProperty.call(options || {}, 'catalog')
+            ? options.catalog
+            : sampleCatalog(),
     });
 }
 
@@ -161,10 +221,12 @@ describe('admin notifications', { concurrency: false }, () => {
         const customer = sent.find((item) => item.to === 'lan@example.com');
         assert.equal(Boolean(workshop), true);
         assert.equal(Boolean(customer), true);
-        assert.match(workshop.text, /Event: custom build inquiry/);
+        assert.match(workshop.subject, /New Custom Guitar Inquiry/);
+        assert.match(workshop.text, /CUSTOM BUILD INQUIRY/);
         assert.match(workshop.text, /Inquiry ID:/);
-        assert.match(workshop.text, /series: series.classic/);
-        assert.match(workshop.text, /draftId=draft-12345678/);
+        assert.match(workshop.text, /Series: Classic/);
+        assert.equal(workshop.text.includes('series: series.classic'), false);
+        assert.equal(workshop.text.includes('draftId='), false);
         assert.match(workshop.text, new RegExp(IMAGE_PATH.replace(/\//g, '\\/')));
         assert.match(workshop.text, /https:\/\/api\.example\/uploads\/custom-build\//);
         assert.match(workshop.text, new RegExp(`https://phanquanguitars.com/admin/inquiries/${created.id}`));
@@ -203,11 +265,11 @@ describe('admin notifications', { concurrency: false }, () => {
         assert.match(customer.text, /Cảm ơn bạn đã gửi yêu cầu custom guitar đến PhanQuan Guitars/);
         assert.match(customer.text, /Đây là yêu cầu custom, chưa phải xác nhận đơn hàng hoặc báo giá cuối cùng/);
         assert.equal(customer.text.includes('Thank you for your custom guitar inquiry'), false);
-        assert.match(customer.text, /Loại nhạc cụ: Electric Guitar/);
+        assert.match(customer.text, /Loại nhạc cụ: Guitar điện/);
         assert.match(customer.text, /Series: Classic/);
         assert.match(customer.text, /Dáng thân: Double Cut/);
-        assert.match(customer.text, /Chiều dài scale: 25\.5/);
-        assert.match(customer.text, /Số dây: 6/);
+        assert.match(customer.text, /Chiều dài scale: 25\.5″/);
+        assert.match(customer.text, /Số dây: 6 dây/);
         assert.equal((customer.text.match(/Loại nhạc cụ:/g) || []).length, 1);
         assert.match(customer.text, /Muon dan 25.5/);
     });

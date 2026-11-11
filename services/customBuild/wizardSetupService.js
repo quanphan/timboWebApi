@@ -119,6 +119,14 @@ function readImagePath(value) {
     return path.slice(0, 240);
 }
 
+function descriptionFromRoot(value, locale) {
+    if (typeof value === 'string') return locale === 'en' ? value : '';
+    if (value && typeof value === 'object' && !Array.isArray(value)) {
+        return typeof value[locale] === 'string' ? value[locale] : '';
+    }
+    return '';
+}
+
 function translationsFrom(body, fallbackName, existing) {
     const viSource = body.translations?.vi
         ? { ...(existing?.vi || {}), ...body.translations.vi }
@@ -126,6 +134,14 @@ function translationsFrom(body, fallbackName, existing) {
     const enSource = body.translations?.en
         ? { ...(existing?.en || {}), ...body.translations.en }
         : (existing?.en || {});
+    const viSent = body.translations?.vi && Object.prototype.hasOwnProperty.call(body.translations.vi, 'description');
+    const enSent = body.translations?.en && Object.prototype.hasOwnProperty.call(body.translations.en, 'description');
+    if (!viSent && body.description !== undefined && !cleanString(viSource.description)) {
+        viSource.description = descriptionFromRoot(body.description, 'vi') || viSource.description;
+    }
+    if (!enSent && body.description !== undefined && !cleanString(enSource.description)) {
+        enSource.description = descriptionFromRoot(body.description, 'en') || enSource.description;
+    }
     return {
         vi: {
             name: cleanString(viSource.name).slice(0, NAME_MAX),
@@ -136,6 +152,14 @@ function translationsFrom(body, fallbackName, existing) {
             description: cleanString(enSource.description).slice(0, TEXT_MAX),
         },
     };
+}
+
+function topLevelDescription(body, existing) {
+    if (body.description === undefined) return existing.description ?? null;
+    if (body.description && typeof body.description === 'object' && !Array.isArray(body.description)) {
+        return cleanString(body.description.en).slice(0, TEXT_MAX) || null;
+    }
+    return cleanString(body.description).slice(0, TEXT_MAX) || null;
 }
 
 function optionFromBody(category, body, existing = {}) {
@@ -185,9 +209,7 @@ function optionFromBody(category, body, existing = {}) {
     return {
         id,
         name,
-        description: body.description !== undefined
-            ? (cleanString(body.description).slice(0, TEXT_MAX) || null)
-            : (existing.description ?? null),
+        description: topLevelDescription(body, existing),
         active,
         code,
         imagePath: resolvedImagePath,
